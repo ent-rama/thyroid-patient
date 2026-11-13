@@ -38,7 +38,9 @@ function doGet() {
 }
 
 // ---------- ชีตและสิทธิ์ ----------
-function ss_() { return SpreadsheetApp.getActiveSpreadsheet(); }
+// ใช้ได้ทั้งสคริปต์ที่สร้างจากในชีต และสคริปต์ที่สร้างที่ script.google.com โดยตรง
+var SHEET_ID = '1Don2BTnMJgo7jeJqRxHWvYmoIQiZIKmaguGmxbEjJcM';
+function ss_() { return SpreadsheetApp.openById(SHEET_ID); }
 
 function recordsSheet_() {
   var ss = ss_();
@@ -66,7 +68,7 @@ function usersSheet_() {
   if (!sh) {
     sh = ss.insertSheet(USERS_SHEET);
     sh.getRange(1, 1).setValue('อีเมลที่ได้รับอนุญาต').setFontWeight('bold');
-    sh.getRange(2, 1).setValue(OWNER_EMAIL);
+    sh.getRange(2, 1, 2, 1).setValues([[OWNER_EMAIL], ['nayika.run@mahidol.ac.th']]);
     sh.setColumnWidth(1, 300);
   }
   return sh;
@@ -75,7 +77,7 @@ function usersSheet_() {
 function isAllowed_(email) {
   if (!email) return false;
   email = email.toLowerCase();
-  if (email === OWNER_EMAIL.toLowerCase()) return true;
+  if (email === OWNER_EMAIL.toLowerCase() || email === 'nayika.run@mahidol.ac.th') return true;
   var sh = usersSheet_();
   var n = sh.getLastRow() - 1;
   if (n < 1) return false;
