@@ -112,28 +112,36 @@ function toast(m){var t=$('toast');t.textContent=m;t.style.display='block';clear
 var IS_GAS = !!(window.google && google.script && google.script.run);
 var API_URL = 'https://script.google.com/macros/s/AKfycbzmQ4BBh2Yee-2VuGRpICaB8zUsecfOT5xivNngYJLsgg4RLXvXr4_5m1dqr9sCoqI9Hw/exec';
 
+/* JSONP helper — ข้าม CORS ด้วย <script> tag */
+function jsonp(params){
+  return new Promise(function(res,rej){
+    var cb='_jp'+Math.random().toString(36).slice(2);
+    var timeout=setTimeout(function(){delete window[cb];s.remove();rej(new Error('หมดเวลาเชื่อมต่อ'))},30000);
+    window[cb]=function(d){clearTimeout(timeout);delete window[cb];s.remove();if(d&&d.error){rej(new Error(d.error))}else{res(d)}};
+    params.callback=cb;
+    var qs=Object.keys(params).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(params[k])}).join('&');
+    var s=document.createElement('script');
+    s.src=API_URL+'?'+qs;
+    s.onerror=function(){clearTimeout(timeout);delete window[cb];s.remove();rej(new Error('เชื่อมต่อไม่ได้'))};
+    document.head.appendChild(s);
+  });
+}
+
 function call(fn,args){
   if(IS_GAS){
     return new Promise(function(res,rej){
       google.script.run.withSuccessHandler(res).withFailureHandler(rej)[fn].apply(null,args||[]);
     });
   }
-  /* เรียก API ผ่าน fetch (GitHub Pages / ภายนอก) */
+  /* เรียก API ผ่าน JSONP (GitHub Pages / ภายนอก) */
   var actionMap = {apiInit:'init', apiSearch:'search', apiGetPatient:'getPatient', apiSave:'save', apiDelete:'delete'};
   var action = actionMap[fn] || fn;
-  if(action==='init' || action==='search' || action==='getPatient'){
-    var params = {action:action};
-    if(action==='search') params.q = (args&&args[0]) || '';
-    if(action==='getPatient') params.hn = (args&&args[0]) || '';
-    var qs = Object.keys(params).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(params[k])}).join('&');
-    return fetch(API_URL+'?'+qs).then(function(r){return r.json()}).then(function(j){if(j.error) throw new Error(j.error); return j;});
-  } else {
-    var body = {action:action};
-    if(action==='save') body.data = (args&&args[0]) || {};
-    if(action==='delete') body.id = (args&&args[0]) || '';
-    return fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(body),redirect:'follow'})
-      .then(function(r){return r.json()}).then(function(j){if(j.error) throw new Error(j.error); return j;});
-  }
+  var params = {action:action};
+  if(action==='search') params.q = (args&&args[0]) || '';
+  if(action==='getPatient') params.hn = (args&&args[0]) || '';
+  if(action==='save') params.data = JSON.stringify((args&&args[0]) || {});
+  if(action==='delete') params.id = (args&&args[0]) || '';
+  return jsonp(params);
 }
 function fail(e){toast('ผิดพลาด: '+((e&&e.message)||e))}
 

@@ -53,6 +53,7 @@ function doPost(e) {
 }
 
 function handleApi_(action, params) {
+  var callback = params.callback || '';
   try {
     var result;
     switch (action) {
@@ -66,7 +67,9 @@ function handleApi_(action, params) {
         result = apiGetPatient(params.hn || '');
         break;
       case 'save':
-        result = apiSave(params.data || params);
+        var saveData = params.data;
+        if (typeof saveData === 'string') { try { saveData = JSON.parse(saveData); } catch(x){} }
+        result = apiSave(saveData || params);
         break;
       case 'delete':
         result = apiDelete(params.id || '');
@@ -74,12 +77,21 @@ function handleApi_(action, params) {
       default:
         result = { error: 'Unknown action: ' + action };
     }
-    return ContentService.createTextOutput(JSON.stringify(result))
-      .setMimeType(ContentService.MimeType.JSON);
+    return jsonpOrJson_(result, callback);
   } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ error: err.message }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return jsonpOrJson_({ error: err.message }, callback);
   }
+}
+
+function jsonpOrJson_(data, callback) {
+  var json = JSON.stringify(data);
+  if (callback) {
+    // JSONP: ส่งกลับเป็น JavaScript เพื่อข้าม CORS
+    return ContentService.createTextOutput(callback + '(' + json + ')')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService.createTextOutput(json)
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 // ---------- ชีตและสิทธิ์ ----------
