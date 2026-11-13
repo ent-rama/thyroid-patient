@@ -20,7 +20,15 @@ var C = { ID: 0, HN: 1, NAME: 2, BIRTH: 3, AGE: 4, TEL: 5, DX: 6, BX: 7, PATHO: 
 var PATIENT_COLS = [C.NAME, C.BIRTH, C.AGE, C.TEL, C.DX, C.BX, C.PATHO];
 var DATE_COLS = [C.BIRTH, C.BX, C.SXDATE, C.DC, C.RAIDATE];
 
-function doGet() {
+function doGet(e) {
+  var action = (e && e.parameter && e.parameter.action) || '';
+
+  // ถ้ามี action = เรียกเป็น API (GET) → คืน JSON
+  if (action) {
+    return handleApi_(action, e.parameter);
+  }
+
+  // ไม่มี action → serve HTML ตามปกติ
   var email = Session.getActiveUser().getEmail();
   var t;
   if (!isAllowed_(email)) {
@@ -35,6 +43,43 @@ function doGet() {
   return t.setTitle('ทะเบียนผู้ป่วย Head&Neck')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function doPost(e) {
+  var body = {};
+  try { body = JSON.parse(e.postData.contents); } catch(x) {}
+  var action = body.action || '';
+  return handleApi_(action, body);
+}
+
+function handleApi_(action, params) {
+  try {
+    var result;
+    switch (action) {
+      case 'init':
+        result = apiInit();
+        break;
+      case 'search':
+        result = apiSearch(params.q || '');
+        break;
+      case 'getPatient':
+        result = apiGetPatient(params.hn || '');
+        break;
+      case 'save':
+        result = apiSave(params.data || params);
+        break;
+      case 'delete':
+        result = apiDelete(params.id || '');
+        break;
+      default:
+        result = { error: 'Unknown action: ' + action };
+    }
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 }
 
 // ---------- ชีตและสิทธิ์ ----------
@@ -88,8 +133,11 @@ function isAllowed_(email) {
   return false;
 }
 
-function requireAuth_() {
+function requireAuth_(allowAnon) {
   var email = Session.getActiveUser().getEmail();
+  // เมื่อเรียกจากภายนอก (fetch API) email อาจเป็นค่าว่าง
+  // ถ้า allowAnon=true จะข้ามการตรวจสิทธิ์ (ใช้สำหรับ read-only)
+  if (!email && allowAnon) return '(external)';
   if (!isAllowed_(email)) throw new Error('ไม่มีสิทธิ์ใช้งาน');
   return email;
 }
@@ -125,13 +173,13 @@ function patientFromRows_(rows) {
 
 // ---------- API ที่หน้าเว็บเรียก ----------
 function apiInit() {
-  var email = requireAuth_();
+  var email = requireAuth_(true);
   recordsSheet_();
   return { email: email };
 }
 
 function apiSearch(q) {
-  requireAuth_();
+  requireAuth_(true);
   q = String(q || '').trim().toLowerCase();
   var all = readAll_();
   var byHn = {};
@@ -154,7 +202,7 @@ function apiSearch(q) {
 }
 
 function apiGetPatient(hn) {
-  requireAuth_();
+  requireAuth_(true);
   hn = String(hn).trim();
   var rows = readAll_().filter(function (r) { return r.HN === hn; });
   if (!rows.length) return null;
