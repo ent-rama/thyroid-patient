@@ -145,12 +145,9 @@ function isAllowed_(email) {
   return false;
 }
 
-function requireAuth_(allowAnon) {
+function requireAuth_() {
   var email = Session.getActiveUser().getEmail();
-  // เมื่อเรียกจากภายนอก (fetch API) email อาจเป็นค่าว่าง
-  // ถ้า allowAnon=true จะข้ามการตรวจสิทธิ์ (ใช้สำหรับ read-only)
-  if (!email && allowAnon) return '(external)';
-  if (!isAllowed_(email)) throw new Error('ไม่มีสิทธิ์ใช้งาน');
+  if (!isAllowed_(email)) throw new Error('ไม่มีสิทธิ์ใช้งาน (บัญชี: ' + (email || 'ไม่ทราบ — กรุณา login Google ด้วยบัญชีที่ได้รับอนุญาต') + ')');
   return email;
 }
 
@@ -185,13 +182,13 @@ function patientFromRows_(rows) {
 
 // ---------- API ที่หน้าเว็บเรียก ----------
 function apiInit() {
-  var email = requireAuth_(true);
+  var email = requireAuth_();
   recordsSheet_();
   return { email: email };
 }
 
 function apiSearch(q) {
-  requireAuth_(true);
+  requireAuth_();
   q = String(q || '').trim().toLowerCase();
   var all = readAll_();
   var byHn = {};
@@ -214,7 +211,7 @@ function apiSearch(q) {
 }
 
 function apiGetPatient(hn) {
-  requireAuth_(true);
+  requireAuth_();
   hn = String(hn).trim();
   var rows = readAll_().filter(function (r) { return r.HN === hn; });
   if (!rows.length) return null;
