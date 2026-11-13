@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Sarabun","Noto Sans Thai",sans-serif;background:#f3f6fa;color:#1d2b3a;font-size:16px}
+  header{background:#1565c0;color:#fff;padding:14px 16px;position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px}
+  header h1{font-size:18px;margin:0;flex:1}
+  header button{background:rgba(255,255,255,.2);color:#fff;border:0;border-radius:8px;padding:6px 12px;font-size:15px}
+  main{padding:14px;max-width:640px;margin:0 auto;padding-bottom:90px}
+  .card{background:#fff;border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  label{display:block;font-size:14px;color:#51657a;margin:12px 0 4px}
+  input,select,textarea{width:100%;padding:11px;border:1px solid #c5d0dc;border-radius:8px;font-size:16px;font-family:inherit;background:#fff}
+  textarea{min-height:70px}
+  .be{font-size:13px;color:#1565c0;margin-top:3px;min-height:16px}
+  .btn{display:block;width:100%;border:0;border-radius:10px;padding:13px;font-size:17px;font-weight:600;margin-top:12px;background:#1565c0;color:#fff}
+  .btn.sec{background:#e3f2fd;color:#1565c0}
+  .btn.red{background:#fdecea;color:#c62828}
+  .btn.green{background:#2e7d32}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .item{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #eef1f5}
+  .item:last-child{border-bottom:0}
+  .tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:10px;margin-right:4px;background:#e3f2fd;color:#1565c0}
+  .tag.rai{background:#fff3e0;color:#e65100}
+  .muted{color:#6b7c8f;font-size:14px}
+  .chk{display:flex;align-items:center;gap:10px;padding:9px 0;font-size:16px;color:#1d2b3a;margin:0}
+  .chk input{width:22px;height:22px;margin:0}
+  #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#323232;color:#fff;padding:10px 18px;border-radius:20px;display:none;z-index:20}
+  h3{margin:0 0 6px;font-size:17px}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<header>
+  <button id="backBtn" class="hidden" onclick="goBack()">← กลับ</button>
+  <h1 id="title">ทะเบียนผู้ป่วย</h1>
+</header>
+<main id="app"><div class="card muted">กำลังโหลด...</div></main>
+<div id="toast"></div>
+
+<script>
+var PROCS = ['Lobectomy (Right)','Lobectomy (Left)','Total thyroidectomy','Selective neck dissection','MRND','Central neck dissection','Tracheostomy'];
+var DOSES = ['30','100','150','200'];
+var stack = [];       // ประวัติหน้า
+var cur = null;       // ผู้ป่วยที่เปิดอยู่ {patient, events}
+
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function toast(m){var t=$('toast');t.textContent=m;t.style.display='block';setTimeout(function(){t.style.display='none'},2200)}
+function call(fn, args){
+  return new Promise(function(res,rej){
+    google.script.run.withSuccessHandler(res).withFailureHandler(function(e){rej(e)})[fn].apply(null,args||[]);
+  });
+}
+function fail(e){toast('ผิดพลาด: '+(e.message||e));}
+
+/* ---------- วันที่ พ.ศ. ---------- */
+function isoToBE(iso){ if(!iso) return ''; var p=iso.split('-'); return p[2]+'/'+p[1]+'/'+(parseInt(p[0],10)+543); }
+function beToIso(be){ if(!be) return ''; var p=be.split('/'); if(p.length!==3) return ''; return (parseInt(p[2],10)-543)+'-'+p[1]+'-'+p[0]; }
+function showBE(inp){ var el=$(inp.id+'_be'); if(el) el.textContent=inp.value?('พ.ศ. '+isoToBE(inp.value)):''; }
+function dateField(id,label,be){
+  var v=beToIso(be);
+  return '<label>'+label+'</label><input type="date" id="'+id+'" value="'+v+'" oninput="showBE(this)"><div class="be" id="'+id+'_be">'+(v?'พ.ศ. '+esc(be):'')+'</div>';
+}
+function getBE(id){ return isoToBE($(id).value); }
+
+function calcAge(iso){
+  if(!iso) return '';
+  var b=new Date(iso), n=new Date();
+  var a=n.getFullYear()-b.getFullYear();
+  var m=n.getMonth()-b.getMonth();
+  if(m<0||(m===0&&n.getDate()<b.getDate())) a--;
+  return a>=0?a:'';
+}
+
+/* ---------- นำทาง ---------- */
+function setTitle(t,back){ $('title').textContent=t; $('backBtn').classList.toggle('hidden',!back); }
+function goBack(){ var f=stack.pop(); if(f) f(); else showHome(); }
+
+/* ---------- หน้าแรก / ค้นหา ---------- */
+var searchTimer;
+function showHome(){
+  stack=[]; cur=null; setTitle('ทะเบียนผู้ป่วย',false);
+  $('app').innerHTML=
+    '<div class="card"><input id="q" type="search" placeholder="ค้นหา HN หรือชื่อ" oninput="debounceSearch()">'+
+    '<button class="btn" onclick="newPatient()">+ ผู้ป่วยใหม่</button></div>'+
+    '<div id="list" class="card muted">กำลังโหลด...</div>';
+  doSearch();
+}
+function debounceSearch(){ clearTimeout(searchTimer); searchTimer=setTimeout(doSearch,300); }
+function doSearch(){
+  var q=$('q')?$('q').value:'';
+  call('apiSearch',[q]).then(function(list){
+    if(!$('list')) return;
+    if(!list.length){ $('list').innerHTML='ไม่พบผู้ป่วย'; return; }
+    $('list').className='card';
+    $('list').innerHTML=list.map(function(p){
+      return '<div class="item" onclick="openPatient(\''+esc(p.HN)+'\')"><div><b>'+esc(p.NAME||'(ไม่มีชื่อ)')+'</b><div class="muted">HN '+esc(p.HN)+(p.AGE?' · อายุ '+esc(p.AGE):'')+'</div></div>'+
+        '<div><span class="tag">Sx '+p.sx+'</span><span class="tag rai">RAI '+p.rai+'</span></div></div>';
+    }).join('');
+  }).catch(fail);
+}
+
+/* ---------- ผู้ป่วย ---------- */
+function openPatient(hn){
+  call('apiGetPatient',[hn]).then(function(d){
+    if(!d){toast('ไม่พบข้อมูล');return;}
+    cur=d; stack=[showHome]; renderPatient();
+  }).catch(fail);
+}
+function renderPatient(){
+  var p=cur.patient;
+  setTitle(p.NAME||('HN '+p.HN),true);
+  var ev=cur.events.slice().sort(function(a,b){
+    return (beToIso(a.SXDATE||a.RAIDATE)||'').localeCompare(beToIso(b.SXDATE||b.RAIDATE)||'');
+  });
+  var h='<div class="card"><h3>'+esc(p.NAME)+'</h3>'+
+    '<div class="muted">HN '+esc(p.HN)+(p.AGE?' · อายุ '+esc(p.AGE)+' ปี':'')+(p.TEL?' · '+esc(p.TEL):'')+'</div>'+
+    (p.DX?'<div style="margin-top:8px"><b>Dx:</b> '+esc(p.DX)+'</div>':'')+
+    (p.BX?'<div><b>วันที่ Bx:</b> '+esc(p.BX)+'</div>':'')+
+    (p.PATHO?'<div><b>Patho:</b> '+esc(p.PATHO)+'</div>':'')+
+    '<button class="btn sec" onclick="editInfo()">แก้ไขข้อมูลผู้ป่วย</button></div>';
+  h+='<div class="card"><h3>การรักษา</h3>';
+  if(!ev.length) h+='<div class="muted">ยังไม่มีข้อมูล</div>';
+  ev.forEach(function(e){
+    if(e.TYPE==='SX'){
+      h+='<div class="item" onclick="editEvent(\''+e.ID+'\')"><div><span class="tag">ผ่าตัดครั้งที่ '+esc(e.SXNO)+'</span><div>'+esc(e.PROC)+'</div>'+
+        '<div class="muted">ผ่าตัด '+esc(e.SXDATE)+(e.DC?' · Discharge '+esc(e.DC):'')+'</div>'+(e.COMP?'<div class="muted">Comp: '+esc(e.COMP)+'</div>':'')+'</div><span>›</span></div>';
+    } else {
+      h+='<div class="item" onclick="editEvent(\''+e.ID+'\')"><div><span class="tag rai">RAI</span><div>'+esc(e.RAIDOSE)+' mCi</div>'+
+        '<div class="muted">'+esc(e.RAIDATE)+'</div>'+(e.COMP?'<div class="muted">Comp: '+esc(e.COMP)+'</div>':'')+'</div><span>›</span></div>';
+    }
+  });
+  h+='<div class="row2"><button class="btn" onclick="newEvent(\'SX\')">+ ผ่าตัด</button><button class="btn" style="background:#e65100" onclick="newEvent(\'RAI\')">+ RAI</button></div></div>';
+  $('app').innerHTML=h;
+}
+
+/* ---------- ฟอร์มข้อมูลผู้ป่วย ---------- */
+function patientFields(p){
+  p=p||{};
+  return '<label>ชื่อ-นามสกุล</label><input id="f_name" value="'+esc(p.NAME)+'">'+
+    '<label>HN</label><input id="f_hn" inputmode="numeric" value="'+esc(p.HN)+'"'+(p.HN?' readonly':'')+'>'+
+    dateField('f_birth','วันเกิด (ถ้าไม่ทราบ ให้ใส่อายุแทน)',p.BIRTH)+
+    '<label>อายุ (ปี)</label><input id="f_age" type="number" inputmode="numeric" value="'+esc(p.AGE)+'">'+
+    '<label>Tel</label><input id="f_tel" type="tel" value="'+esc(p.TEL)+'">'+
+    '<label>Dx</label><textarea id="f_dx">'+esc(p.DX)+'</textarea>'+
+    dateField('f_bx','วันที่ Bx',p.BX)+
+    '<label>Patho</label><textarea id="f_patho">'+esc(p.PATHO)+'</textarea>';
+}
+function wireAge(){
+  $('f_birth').addEventListener('input',function(){ var a=calcAge(this.value); if(a!=='') $('f_age').value=a; });
+}
+function readPatient(){
+  return {NAME:$('f_name').value.trim(),HN:$('f_hn').value.trim(),BIRTH:getBE('f_birth'),AGE:$('f_age').value,
+    TEL:$('f_tel').value.trim(),DX:$('f_dx').value.trim(),BX:getBE('f_bx'),PATHO:$('f_patho').value.trim()};
+}
+function newPatient(){
+  stack=[showHome]; setTitle('ผู้ป่วยใหม่',true);
+  $('app').innerHTML='<div class="card">'+patientFields()+'<button class="btn green" onclick="savePatient(true)">บันทึก</button></div>';
+  wireAge();
+}
+function editInfo(){
+  stack=[renderPatient]; setTitle('แก้ไขข้อมูลผู้ป่วย',true);
+  $('app').innerHTML='<div class="card">'+patientFields(cur.patient)+'<button class="btn green" onclick="savePatient(false)">บันทึก</button></div>';
+  wireAge();
+}
+function savePatient(isNew){
+  var o=readPatient();
+  if(!o.HN){toast('กรุณากรอก HN');return;}
+  o.TYPE='INFO';
+  if(!isNew){ // อัปเดตข้อมูลผู้ป่วยโดยบันทึกเป็นแถว INFO ใหม่ (ระบบจะซิงค์ทุกแถวของ HN เดียวกัน)
+    o.NOTE='แก้ไขข้อมูลผู้ป่วย';
+  }
+  call('apiSave',[o]).then(function(){toast('บันทึกแล้ว'); openPatient(o.HN);}).catch(fail);
+}
+
+/* ---------- ฟอร์มเหตุการณ์ผ่าตัด / RAI ---------- */
+var editing=null;
+function newEvent(type){ editing={TYPE:type}; eventForm(); }
+function editEvent(id){
+  editing=cur.events.filter(function(e){return e.ID===id})[0]; eventForm();
+}
+function eventForm(){
+  var e=editing, isSx=e.TYPE==='SX';
+  stack=[renderPatient]; setTitle(isSx?'ผ่าตัด':'RAI',true);
+  var h='<div class="card"><div class="muted">'+esc(cur.patient.NAME)+' · HN '+esc(cur.patient.HN)+'</div>';
+  if(isSx){
+    var n=e.SXNO||(cur.events.filter(function(x){return x.TYPE==='SX'}).length+1);
+    var chosen=(e.PROC||'').split(', ').filter(Boolean);
+    var other=chosen.filter(function(c){return PROCS.indexOf(c)<0}).join(', ');
+    h+='<label>ผ่าตัดครั้งที่</label><input id="e_no" type="number" inputmode="numeric" value="'+esc(n)+'">'+
+      '<label>ผ่าตัดอะไร</label>'+PROCS.map(function(p,i){
+        return '<label class="chk"><input type="checkbox" class="proc" value="'+p+'"'+(chosen.indexOf(p)>=0?' checked':'')+'>'+p+'</label>';
+      }).join('')+
+      '<label>อื่นๆ (พิมพ์เพิ่มได้)</label><input id="e_other" value="'+esc(other)+'">'+
+      dateField('e_date','วันที่ผ่าตัด',e.SXDATE)+
+      dateField('e_dc','วันที่ Discharge',e.DC);
+  } else {
+    h+=dateField('e_date','วันที่ RAI',e.RAIDATE)+
+      '<label>ความแรงรังสี (mCi)</label><select id="e_dose"><option value="">เลือก</option>'+
+      DOSES.map(function(d){return '<option'+(e.RAIDOSE===d?' selected':'')+'>'+d+'</option>'}).join('')+'</select>';
+  }
+  h+='<label>Complication</label><textarea id="e_comp">'+esc(e.COMP)+'</textarea>'+
+    '<label>หมายเหตุ</label><textarea id="e_note">'+esc(e.NOTE)+'</textarea>'+
+    '<button class="btn green" onclick="saveEvent()">บันทึก</button>'+
+    (e.ID?'<button class="btn red" onclick="delEvent()">ลบรายการนี้</button>':'')+'</div>';
+  $('app').innerHTML=h;
+}
+function saveEvent(){
+  var e=editing, p=cur.patient;
+  var o={ID:e.ID||'',TYPE:e.TYPE,HN:p.HN,NAME:p.NAME,BIRTH:p.BIRTH,AGE:p.AGE,TEL:p.TEL,DX:p.DX,BX:p.BX,PATHO:p.PATHO,
+    COMP:$('e_comp').value.trim(),NOTE:$('e_note').value.trim()};
+  if(e.TYPE==='SX'){
+    var procs=[].slice.call(document.querySelectorAll('.proc:checked')).map(function(c){return c.value});
+    var other=$('e_other').value.trim(); if(other) procs.push(other);
+    if(!procs.length){toast('กรุณาเลือกชนิดการผ่าตัด');return;}
+    if(!$('e_date').value){toast('กรุณาเลือกวันที่ผ่าตัด');return;}
+    o.SXNO=$('e_no').value; o.PROC=procs.join(', '); o.SXDATE=getBE('e_date'); o.DC=getBE('e_dc');
+  } else {
+    if(!$('e_date').value){toast('กรุณาเลือกวันที่ RAI');return;}
+    if(!$('e_dose').value){toast('กรุณาเลือกความแรง');return;}
+    o.RAIDATE=getBE('e_date'); o.RAIDOSE=$('e_dose').value;
+  }
+  call('apiSave',[o]).then(function(){toast('บันทึกแล้ว'); openPatient(p.HN);}).catch(fail);
+}
+function delEvent(){
+  if(!confirm('ลบรายการนี้?')) return;
+  call('apiDelete',[editing.ID]).then(function(){toast('ลบแล้ว'); openPatient(cur.patient.HN);}).catch(fail);
+}
+
+call('apiInit').then(showHome).catch(fail);
+</script>
+</body>
+</html>
