@@ -62,7 +62,7 @@ function getSheet_(name, headers, textCols) {
 }
 
 function patientsSheet_() { return getSheet_(PATIENTS_SHEET, PAT_HEADERS, [PAT.HN, PAT.BIRTH, PAT.TEL, PAT.BX]); }
-function eventsSheet_() { return getSheet_(EVENTS_SHEET, EVT_HEADERS, [EVT.HN, EVT.SXDATE, EVT.DC, EVT.RAIDATE]); }
+function eventsSheet_() { return getSheet_(EVENTS_SHEET, EVT_HEADERS, [EVT.HN, EVT.ADMIT, EVT.SXDATE, EVT.DC, EVT.RAIDATE]); }
 
 function usersSheet_() {
   var ss = ss_();
@@ -338,4 +338,369 @@ function migrateRecordsToSplit_() {
   if (events.length) evt.getRange(2, 1, events.length, EVT_HEADERS.length).setValues(events);
   SpreadsheetApp.flush();
   return 'ย้ายแล้ว: ผู้ป่วย ' + prow.length + ' ราย, เหตุการณ์ ' + events.length + ' รายการ (ชีต Records ยังอยู่เป็นสำรอง)';
+}
+
+// ================= สรุปข้อมูล / Dashboard =================
+
+// แปลงข้อความวันที่ พ.ศ. (วว/ดด/ปปปป) เป็นเวลามิลลิวินาที UTC
+function parseThaiDate_(v) {
+  if (v instanceof Date) return Date.UTC(v.getFullYear(), v.getMonth(), v.getDate());
+  var s = str_(v).trim();
+  if (!s) return null;
+  var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  var d = +m[1], mo = +m[2], y = +m[3];
+  if (y >= 2400) y -= 543;              // พ.ศ. -> ค.ศ.
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return Date.UTC(y, mo - 1, d);
+}
+
+// จำนวนวันจาก a ถึง b (null = คำนวณไม่ได้)
+function diffDays_(a, b) {
+  var x = parseThaiDate_(a), y = parseThaiDate_(b);
+  if (x === null || y === null) return null;
+  return Math.round((y - x) / 86400000);
+}
+
+// สถิติพื้นฐานของชุดตัวเลข
+function stat_(arr) {
+  var n = arr.length;
+  if (!n) return { n: 0, mean: '', median: '', min: '', max: '' };
+  var s = arr.slice().sort(function (a, b) { return a - b; });
+  var sum = 0;
+  for (var i = 0; i < n; i++) sum += s[i];
+  var mid = n >> 1;
+  var med = (n % 2) ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  return {
+    n: n,
+    mean: Math.round(sum / n * 10) / 10,
+    median: Math.round(med * 10) / 10,
+    min: s[0], max: s[n - 1]
+  };
+}
+
+function bump_(m, k) { m[k] = (m[k] || 0) + 1; }
+
+function tally_(m) {
+  var out = [];
+  for (var k in m) if (m.hasOwnProperty(k)) out.push({ k: k, v: m[k] });
+  out.sort(function (a, b) { return b.v - a.v || (a.k < b.k ? -1 : 1); });
+  return out;
+}
+
+// อายุ: ใช้ช่องอายุก่อน ถ้าไม่มีคำนวณจากวันเกิด
+function ageOf_(p) {
+  var a = parseInt(str_(p.AGE), 10);
+  if (!isNaN(a) && a >= 0 && a < 130) return a;
+  var b = parseThaiDate_(p.BIRTH);
+  if (b === null) return null;
+  var bd = new Date(b), now = new Date();
+  var y = now.getFullYear() - bd.getUTCFullYear();
+  if ((now.getMonth() + 1) * 100 + now.getDate() < (bd.getUTCMonth() + 1) * 100 + bd.getUTCDate()) y--;
+  return (y >= 0 && y < 130) ? y : null;
+}
+
+function ageBand_(a) {
+  if (a === null) return 'ไม่ระบุ';
+  if (a < 40) return 'น้อยกว่า 40 ปี';
+  if (a < 60) return '40-59 ปี';
+  return '60 ปีขึ้นไป';
+}
+
+// คำนวณสถิติทั้งหมดจากชีต Patients + Events
+function computeStats_() {
+  var pats = readRows_(patientsSheet_(), PAT_HEADERS.length).map(patientObj_)
+    .filter(function (p) { return p.HN; });
+  var evts = readRows_(eventsSheet_(), EVT_HEADERS.length).map(eventObj_)
+    .filter(function (e) { return e.HN; });
+
+  var byHn = {};
+  pats.forEach(function (p) { byHn[p.HN] = p; });
+
+  // ----- กลุ่มนับหัวคน -----
+  var gender = {}, band = {}, patho = {}, ages = [];
+  pats.forEach(function (p) {
+    bump_(gender, str_(p.GENDER).trim() || 'ไม่ระบุ');
+    var a = ageOf_(p);
+    if (a !== null) ages.push(a);
+    bump_(band, ageBand_(a));
+    bump_(patho, str_(p.PATHO).trim() || 'ไม่ระบุ');
+  });
+
+  // ----- จัดเหตุการณ์ตาม HN เรียงตามวันที่ -----
+  var evByHn = {};
+  evts.forEach(function (e) {
+    e._t = parseThaiDate_(e.TYPE === 'RAI' ? e.RAIDATE : e.SXDATE);
+    (evByHn[e.HN] = evByHn[e.HN] || []).push(e);
+  });
+  Object.keys(evByHn).forEach(function (hn) {
+    evByHn[hn].sort(function (a, b) { return (a._t === null ? 0 : a._t) - (b._t === null ? 0 : b._t); });
+  });
+
+  // ----- กลุ่มนับรายครั้ง -----
+  var proc = {}, doseTally = {};
+  var losEach = [], sxDcEach = [], sxRaiEach = [], doses = [];
+  var sxRows = [], raiRows = [];
+  var nSx = 0, nRai = 0, badDate = 0;
+
+  Object.keys(evByHn).forEach(function (hn) {
+    var lastSx = null;
+    evByHn[hn].forEach(function (e) {
+      if (e.TYPE === 'SX') {
+        nSx++; lastSx = e;
+        e._raiDate = ''; e._sxRaiDays = null;
+        str_(e.PROC).split(',').forEach(function (x) { x = x.trim(); if (x) bump_(proc, x); });
+        var d1 = diffDays_(e.ADMIT, e.DC);
+        var d2 = diffDays_(e.SXDATE, e.DC);
+        if (d1 !== null && d1 < 0) { badDate++; d1 = null; }
+        if (d2 !== null && d2 < 0) { badDate++; d2 = null; }
+        e._los = d1; e._sxDc = d2;
+        if (d1 !== null) losEach.push(d1);
+        if (d2 !== null) sxDcEach.push(d2);
+        sxRows.push(e);
+      } else if (e.TYPE === 'RAI') {
+        nRai++;
+        var dz = parseFloat(str_(e.RAIDOSE));
+        if (!isNaN(dz)) { doses.push(dz); bump_(doseTally, str_(e.RAIDOSE).trim() + ' mCi'); }
+        var d3 = lastSx ? diffDays_(lastSx.SXDATE, e.RAIDATE) : null;
+        if (d3 !== null && d3 < 0) { badDate++; d3 = null; }
+        e._sxRai = d3;
+        e._pairSxNo = lastSx ? str_(lastSx.SXNO) : '';
+        e._pairSxDate = lastSx ? str_(lastSx.SXDATE) : '';
+        if (d3 !== null) sxRaiEach.push(d3);
+        if (lastSx && !lastSx._raiDate) { lastSx._raiDate = e.RAIDATE; lastSx._sxRaiDays = d3; }
+        raiRows.push(e);
+      }
+    });
+  });
+
+  // ----- กลุ่มนับรายคน (1 คน = 1 ค่า) -----
+  var sxPerPat = [], raiPerPat = [], losSumPat = [], sxDcSumPat = [], firstRaiPat = [];
+  var sxCountTally = {}, raiCountTally = {};
+  var withSx = 0, withRai = 0, noEvent = 0;
+  var patRows = [];
+
+  pats.forEach(function (p) {
+    var list = evByHn[p.HN] || [];
+    var nsx = 0, nrai = 0, losSum = null, dcSum = null, firstRai = null, firstRaiDate = '';
+    list.forEach(function (e) {
+      if (e.TYPE === 'SX') {
+        nsx++;
+        if (e._los !== null) losSum = (losSum === null ? 0 : losSum) + e._los;
+        if (e._sxDc !== null) dcSum = (dcSum === null ? 0 : dcSum) + e._sxDc;
+      } else if (e.TYPE === 'RAI') {
+        nrai++;
+        if (firstRai === null && e._sxRai !== null) { firstRai = e._sxRai; firstRaiDate = e.RAIDATE; }
+      }
+    });
+    if (!list.length) noEvent++;
+    if (nsx) { withSx++; sxPerPat.push(nsx); bump_(sxCountTally, nsx + ' ครั้ง'); }
+    if (nrai) { withRai++; raiPerPat.push(nrai); bump_(raiCountTally, nrai + ' ครั้ง'); }
+    if (losSum !== null) losSumPat.push(losSum);
+    if (dcSum !== null) sxDcSumPat.push(dcSum);
+    if (firstRai !== null) firstRaiPat.push(firstRai);
+    patRows.push({ p: p, nsx: nsx, nrai: nrai, losSum: losSum, dcSum: dcSum,
+      firstRai: firstRai, firstRaiDate: firstRaiDate });
+  });
+
+  // ----- ตัวชี้วัด: ผ่าตัด -> Discharge ไม่เกิน 3 วัน -----
+  var KPI_DAYS = 3;
+  var kpi = { days: KPI_DAYS, pass: 0, total: 0, pct: '' };
+  sxDcEach.forEach(function (d) { kpi.total++; if (d <= KPI_DAYS) kpi.pass++; });
+  kpi.pct = kpi.total ? Math.round(kpi.pass / kpi.total * 1000) / 10 : '';
+  sxRows.forEach(function (e) {
+    e._kpi = (e._sxDc === null) ? '' : (e._sxDc <= KPI_DAYS ? 'ผ่าน' : 'ไม่ผ่าน');
+  });
+
+  return {
+    generated: now_(),
+    patients: pats.length,
+    gender: tally_(gender),
+    ageBand: tally_(band),
+    ageStat: stat_(ages),
+    patho: tally_(patho),
+
+    nSx: nSx, nRai: nRai, withSx: withSx, withRai: withRai, noEvent: noEvent,
+    proc: tally_(proc),
+    dose: tally_(doseTally), doseStat: stat_(doses),
+    sxCountTally: tally_(sxCountTally), raiCountTally: tally_(raiCountTally),
+
+    // มุมมอง "ต่อคน"
+    byPatient: {
+      sxCount: stat_(sxPerPat),
+      raiCount: stat_(raiPerPat),
+      losSum: stat_(losSumPat),
+      sxDcSum: stat_(sxDcSumPat),
+      firstRai: stat_(firstRaiPat)
+    },
+    // มุมมอง "ต่อครั้ง"
+    byEvent: {
+      los: stat_(losEach),
+      sxDc: stat_(sxDcEach),
+      sxRai: stat_(sxRaiEach)
+    },
+
+    kpi: kpi,
+    badDate: badDate,
+    _sxRows: sxRows, _raiRows: raiRows, _patRows: patRows, _byHn: byHn
+  };
+}
+
+// เรียกจากหน้าเว็บ: ส่งเฉพาะตัวเลขสรุป
+function apiStats() {
+  requireAuth_();
+  var s = computeStats_();
+  delete s._sxRows; delete s._raiRows; delete s._patRows; delete s._byHn;
+  return s;
+}
+
+// ---------- ส่งออกลง Google Sheets ----------
+function resetSheet_(ss, name) {
+  var sh = ss.getSheetByName(name);
+  if (!sh) sh = ss.insertSheet(name);
+  sh.clear();
+  return sh;
+}
+
+function writeTable_(sh, headers, rows, textCols) {
+  sh.getRange(1, 1, 1, headers.length).setValues([headers])
+    .setFontWeight('bold').setBackground('#e3f2fd');
+  sh.setFrozenRows(1);
+  (textCols || []).forEach(function (c) {
+    sh.getRange(2, c + 1, Math.max(sh.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  });
+  if (rows.length) sh.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  for (var i = 0; i < headers.length; i++) sh.autoResizeColumn(i + 1);
+}
+
+function num_(v) { return (v === null || v === undefined || v === '') ? '' : v; }
+
+function writeSummarySheet_(ss, s) {
+  var sh = resetSheet_(ss, 'Dashboard');
+  var R = [], bold = [];
+  function blank() { R.push(['', '', '']); }
+  function head(t) { bold.push(R.length + 1); R.push([t, '', '']); }
+  function tallyBlock(title, list, denom, unit) {
+    blank(); head(title);
+    R.push(['รายการ', 'จำนวน (' + unit + ')', 'ร้อยละ']);
+    if (!list.length) { R.push(['- ไม่มีข้อมูล -', '', '']); return; }
+    list.forEach(function (x) {
+      R.push([x.k, x.v, denom ? Math.round(x.v / denom * 1000) / 10 : '']);
+    });
+  }
+  function statBlock(title, st, unit) {
+    blank(); head(title);
+    if (!st.n) { R.push(['ยังไม่มีข้อมูลพอคำนวณ', '', '']); return; }
+    R.push(['จำนวนที่คำนวณได้', st.n, '']);
+    R.push(['ค่าเฉลี่ย', st.mean, unit]);
+    R.push(['มัธยฐาน', st.median, unit]);
+    R.push(['ต่ำสุด', st.min, unit]);
+    R.push(['สูงสุด', st.max, unit]);
+  }
+
+  head('สรุปข้อมูลผู้ป่วย Thyroid');
+  R.push(['อัปเดตเมื่อ', '', '']);
+
+  blank(); head('ภาพรวม');
+  R.push(['ผู้ป่วยทั้งหมด', s.patients, 'คน']);
+  R.push(['เคยผ่าตัด', s.withSx, 'คน']);
+  R.push(['เคยได้ RAI', s.withRai, 'คน']);
+  R.push(['ยังไม่มีข้อมูลการรักษา', s.noEvent, 'คน']);
+  R.push(['การผ่าตัดทั้งหมด', s.nSx, 'ครั้ง']);
+  R.push(['การให้ RAI ทั้งหมด', s.nRai, 'ครั้ง']);
+
+  blank(); head('ตัวชี้วัด: ผ่าตัด → Discharge ไม่เกิน ' + s.kpi.days + ' วัน');
+  R.push(['ผ่านเกณฑ์', s.kpi.pass, 'ครั้ง']);
+  R.push(['ไม่ผ่านเกณฑ์', s.kpi.total - s.kpi.pass, 'ครั้ง']);
+  R.push(['การผ่าตัดที่คำนวณได้', s.kpi.total, 'ครั้ง']);
+  R.push(['ร้อยละผ่านเกณฑ์', s.kpi.pct, '%']);
+
+  tallyBlock('เพศ', s.gender, s.patients, 'คน');
+  tallyBlock('ช่วงอายุ', s.ageBand, s.patients, 'คน');
+  statBlock('อายุ (ปี)', s.ageStat, 'ปี');
+  tallyBlock('ผลพยาธิวิทยา (Patho)', s.patho, s.patients, 'คน');
+  tallyBlock('ชนิดการผ่าตัด (นับทุกครั้ง)', s.proc, s.nSx, 'ครั้ง');
+  tallyBlock('จำนวนครั้งที่ผ่าตัด ต่อคน', s.sxCountTally, s.withSx, 'คน');
+  tallyBlock('จำนวนครั้งที่ได้ RAI ต่อคน', s.raiCountTally, s.withRai, 'คน');
+  tallyBlock('ความแรง RAI', s.dose, s.nRai, 'ครั้ง');
+
+  blank(); head('===== มุมมอง ก: ต่อคน (1 คน = 1 ค่า) =====');
+  statBlock('จำนวนครั้งผ่าตัด ต่อคน (เฉพาะคนที่เคยผ่าตัด)', s.byPatient.sxCount, 'ครั้ง');
+  statBlock('วันนอนโรงพยาบาลรวมทั้งหมด ต่อคน', s.byPatient.losSum, 'วัน');
+  statBlock('วันหลังผ่าตัดรวมทั้งหมด ต่อคน', s.byPatient.sxDcSum, 'วัน');
+  statBlock('ผ่าตัด → RAI ครั้งแรก ต่อคน', s.byPatient.firstRai, 'วัน');
+
+  blank(); head('===== มุมมอง ข: ต่อครั้ง (1 ครั้ง = 1 ค่า) =====');
+  statBlock('นอนโรงพยาบาล (รับไว้ → Discharge) ต่อการผ่าตัด 1 ครั้ง', s.byEvent.los, 'วัน');
+  statBlock('ผ่าตัด → Discharge ต่อการผ่าตัด 1 ครั้ง', s.byEvent.sxDc, 'วัน');
+  statBlock('ผ่าตัด → RAI ต่อการให้ RAI 1 ครั้ง', s.byEvent.sxRai, 'วัน');
+
+  if (s.badDate) {
+    blank();
+    head('ข้อมูลที่ข้ามไป');
+    R.push(['วันที่เรียงลำดับไม่ถูกต้อง (เช่น Discharge มาก่อนผ่าตัด)', s.badDate, 'รายการ']);
+  }
+
+  sh.getRange(1, 1, R.length, 3).setValues(R);
+  sh.getRange(2, 2).setNumberFormat('@').setValue(s.generated);
+  bold.forEach(function (r) {
+    sh.getRange(r, 1, 1, 3).setFontWeight('bold').setBackground('#e3f2fd');
+  });
+  sh.getRange(1, 1, 1, 3).setFontSize(13);
+  sh.setColumnWidth(1, 330); sh.setColumnWidth(2, 110); sh.setColumnWidth(3, 90);
+}
+
+function writePatientSheet_(ss, s) {
+  var H = ['HN', 'ชื่อ', 'เพศ', 'อายุ', 'Dx', 'Patho', 'Patho เพิ่มเติม',
+    'จำนวนครั้งผ่าตัด', 'จำนวนครั้ง RAI', 'วันนอน รพ. รวม (วัน)',
+    'วันหลังผ่าตัดรวม (วัน)', 'ผ่าตัด→RAI ครั้งแรก (วัน)'];
+  var rows = s._patRows.map(function (r) {
+    var p = r.p, a = ageOf_(p);
+    return [p.HN, p.NAME || '', p.GENDER || '', a === null ? '' : a, p.DX || '',
+      p.PATHO || '', p.PATHONOTE || '', r.nsx, r.nrai,
+      num_(r.losSum), num_(r.dcSum), num_(r.firstRai)];
+  });
+  writeTable_(resetSheet_(ss, 'ตารางรายคน'), H, rows, [0]);
+}
+
+function writeSurgerySheet_(ss, s) {
+  var H = ['HN', 'ชื่อ', 'เพศ', 'อายุ', 'Patho', 'ผ่าตัดครั้งที่', 'ผ่าตัดอะไร',
+    'วันที่รับไว้ รพ.', 'วันที่ผ่าตัด', 'วันที่ Discharge', 'นอน รพ. (วัน)',
+    'ผ่าตัด→Discharge (วัน)', 'ตัวชี้วัด ≤' + s.kpi.days + ' วัน',
+    'วันที่ RAI ถัดไป', 'ผ่าตัด→RAI (วัน)', 'Complication', 'หมายเหตุ'];
+  var rows = s._sxRows.map(function (e) {
+    var p = s._byHn[e.HN] || {}, a = ageOf_(p);
+    return [e.HN, p.NAME || '', p.GENDER || '', a === null ? '' : a, p.PATHO || '',
+      e.SXNO || '', e.PROC || '', e.ADMIT || '', e.SXDATE || '', e.DC || '',
+      num_(e._los), num_(e._sxDc), e._kpi || '',
+      e._raiDate || '', num_(e._sxRaiDays), e.COMP || '', e.NOTE || ''];
+  });
+  writeTable_(resetSheet_(ss, 'ตารางผ่าตัด'), H, rows, [0, 7, 8, 9, 13]);
+}
+
+function writeRaiSheet_(ss, s) {
+  var H = ['HN', 'ชื่อ', 'เพศ', 'อายุ', 'Patho', 'RAI ครั้งที่', 'วันที่ RAI',
+    'ความแรง (mCi)', 'ผ่าตัดครั้งที่ก่อนหน้า', 'วันที่ผ่าตัดครั้งนั้น',
+    'ผ่าตัด→RAI (วัน)', 'Complication', 'หมายเหตุ'];
+  var seq = {};
+  var rows = s._raiRows.map(function (e) {
+    var p = s._byHn[e.HN] || {}, a = ageOf_(p);
+    seq[e.HN] = (seq[e.HN] || 0) + 1;
+    return [e.HN, p.NAME || '', p.GENDER || '', a === null ? '' : a, p.PATHO || '',
+      seq[e.HN], e.RAIDATE || '', e.RAIDOSE || '',
+      e._pairSxNo || '', e._pairSxDate || '', num_(e._sxRai), e.COMP || '', e.NOTE || ''];
+  });
+  writeTable_(resetSheet_(ss, 'ตาราง RAI'), H, rows, [0, 6, 9]);
+}
+
+function apiExportDashboard() {
+  requireAuth_();
+  var s = computeStats_();
+  var ss = ss_();
+  writeSummarySheet_(ss, s);
+  writePatientSheet_(ss, s);
+  writeSurgerySheet_(ss, s);
+  writeRaiSheet_(ss, s);
+  SpreadsheetApp.flush();
+  return 'ส่งออกแล้ว 4 แท็บ: Dashboard, ตารางรายคน, ตารางผ่าตัด, ตาราง RAI';
 }

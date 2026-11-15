@@ -81,6 +81,19 @@
 
   #toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#1b2a3a;color:#fff;padding:12px 20px;border-radius:999px;display:none;z-index:50;font-size:17px;max-width:90vw;text-align:center}
 
+  .srow{display:flex;align-items:baseline;gap:8px;font-size:17px}
+  .srow .lbl{flex:1;min-width:0;overflow-wrap:anywhere}
+  .srow .num{font-weight:700;color:var(--brand-dark);flex:none}
+  .srow .muted{flex:none;font-size:15px}
+  .bar{height:8px;border-radius:999px;background:#eef3f9;margin-top:5px;overflow:hidden}
+  .bar>i{display:block;height:100%;background:var(--brand)}
+  .big{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+  .big>div{flex:1 1 calc(50% - 5px);background:#f6f9fc;border:1.5px solid var(--line);border-radius:14px;padding:12px 14px}
+  .big b{display:block;font-size:25px;line-height:1.25;color:var(--brand-dark)}
+  .big span{font-size:14px;color:var(--muted)}
+  .sect{margin:28px 0 0;font-size:19px;font-weight:700;color:var(--brand-dark);border-left:5px solid var(--brand);padding-left:12px}
+  .kpi{font-size:42px;font-weight:700;color:var(--ok);line-height:1.1;margin-top:10px}
+
   .banner{text-align:center;margin:0 0 10px}
   .banner img{width:100%;max-width:420px;border-radius:18px;display:block;margin:0 auto}
 </style>
@@ -227,7 +240,8 @@ function showHome(){
   $('app').innerHTML=
     '<div class="card"><label class="field-label" for="q">ค้นหาผู้ป่วย</label>'+
     '<input id="q" type="search" placeholder="HN หรือชื่อ" autocomplete="off" oninput="debounceSearch()">'+
-    '<button class="btn" onclick="newPatient()">+ ผู้ป่วยใหม่</button></div>'+
+    '<button class="btn" onclick="newPatient()">+ ผู้ป่วยใหม่</button>'+
+    '<button class="btn secondary" onclick="showStats()">สรุปข้อมูล / Dashboard</button></div>'+
     '<div id="list" class="card muted">กำลังโหลด...</div>';
   doSearch();
 }
@@ -386,6 +400,86 @@ function saveEvent(){
 function delEvent(){
   if(!confirm('ลบรายการนี้?')) return;
   call('apiDelete',[editing.ID]).then(function(){toast('ลบแล้ว');openPatient(cur.patient.HN)}).catch(fail);
+}
+
+/* ---------- หน้าสรุปข้อมูล / Dashboard ---------- */
+function showStats(){
+  stack=[showHome]; setTitle('สรุปข้อมูล',true,'ภาพรวมผู้ป่วยทั้งหมด');
+  $('app').innerHTML='<div class="card muted">กำลังคำนวณ...</div>';
+  call('apiStats').then(renderStats).catch(function(e){
+    $('app').innerHTML='<div class="card muted">'+esc((e&&e.message)||e)+'</div>';
+  });
+}
+function bars(title,list,denom,unit,note){
+  var h='<div class="card"><h3>'+esc(title)+'</h3>';
+  if(!list||!list.length) return h+'<div class="muted" style="margin-top:6px">ยังไม่มีข้อมูล</div></div>';
+  list.forEach(function(x){
+    var pct=denom?Math.round(x.v/denom*100):0;
+    h+='<div style="margin-top:12px"><div class="srow"><span class="lbl">'+esc(x.k)+'</span>'+
+       '<span class="num">'+x.v+'</span><span class="muted">'+esc(unit)+' · '+pct+'%</span></div>'+
+       '<div class="bar"><i style="width:'+pct+'%"></i></div></div>';
+  });
+  if(note) h+='<div class="muted" style="margin-top:12px">'+esc(note)+'</div>';
+  return h+'</div>';
+}
+function days(title,st,unit,note){
+  var h='<div class="card"><h3>'+esc(title)+'</h3>';
+  if(!st||!st.n) return h+'<div class="muted" style="margin-top:6px">ยังไม่มีข้อมูลพอคำนวณ</div></div>';
+  h+='<div class="big"><div><b>'+st.mean+'</b><span>ค่าเฉลี่ย ('+esc(unit)+')</span></div>'+
+     '<div><b>'+st.median+'</b><span>มัธยฐาน ('+esc(unit)+')</span></div>'+
+     '<div><b>'+st.min+'–'+st.max+'</b><span>ต่ำสุด–สูงสุด</span></div>'+
+     '<div><b>'+st.n+'</b><span>จำนวนที่คำนวณได้</span></div></div>';
+  if(note) h+='<div class="muted" style="margin-top:10px">'+esc(note)+'</div>';
+  return h+'</div>';
+}
+function renderStats(s){
+  var h='<div class="card"><h3>ภาพรวม</h3><div class="big">'+
+    '<div><b>'+s.patients+'</b><span>ผู้ป่วยทั้งหมด (คน)</span></div>'+
+    '<div><b>'+s.nSx+'</b><span>ผ่าตัด (ครั้ง)</span></div>'+
+    '<div><b>'+s.nRai+'</b><span>RAI (ครั้ง)</span></div>'+
+    '<div><b>'+s.withSx+' / '+s.withRai+'</b><span>เคยผ่าตัด / เคย RAI (คน)</span></div></div>'+
+    (s.noEvent?'<div class="muted" style="margin-top:10px">ยังไม่มีข้อมูลการรักษา '+s.noEvent+' คน</div>':'')+'</div>';
+
+  var k=s.kpi, pct=(k.pct===''?0:k.pct);
+  h+='<div class="card"><h3>ตัวชี้วัด: ผ่าตัด → Discharge ไม่เกิน '+k.days+' วัน</h3>'+
+     (k.total
+       ? '<div class="kpi">'+pct+'%</div>'+
+         '<div class="bar" style="height:12px"><i style="width:'+pct+'%;background:var(--ok)"></i></div>'+
+         '<div class="muted" style="margin-top:10px">ผ่านเกณฑ์ '+k.pass+' ครั้ง จากการผ่าตัดที่คำนวณได้ '+k.total+' ครั้ง · ไม่ผ่าน '+(k.total-k.pass)+' ครั้ง</div>'
+       : '<div class="muted" style="margin-top:6px">ยังไม่มีข้อมูลพอคำนวณ</div>')+'</div>';
+
+  h+=bars('เพศ',s.gender,s.patients,'คน');
+  h+=bars('ช่วงอายุ',s.ageBand,s.patients,'คน',
+      s.ageStat.n?('อายุเฉลี่ย '+s.ageStat.mean+' ปี · มัธยฐาน '+s.ageStat.median+' ปี · ช่วง '+s.ageStat.min+'–'+s.ageStat.max+' ปี'):'');
+  h+=bars('ผลพยาธิวิทยา (Patho)',s.patho,s.patients,'คน');
+  h+=bars('ชนิดการผ่าตัด',s.proc,s.nSx,'ครั้ง','นับทุกครั้งที่ผ่าตัด ถ้าครั้งเดียวทำหลายอย่างจะนับทุกอย่าง');
+  h+=bars('ความแรง RAI',s.dose,s.nRai,'ครั้ง');
+
+  h+='<div class="sect">ก. ต่อคน — คนไข้ 1 คน นับ 1 ค่า</div>';
+  h+=days('จำนวนครั้งที่ผ่าตัด ต่อคน',s.byPatient.sxCount,'ครั้ง','เฉพาะคนที่เคยผ่าตัด '+s.withSx+' คน');
+  h+=days('วันนอนโรงพยาบาลรวมทั้งหมด ต่อคน',s.byPatient.losSum,'วัน','บวกทุกครั้งที่ผ่าตัดของคนนั้นเข้าด้วยกัน');
+  h+=days('วันหลังผ่าตัดรวมทั้งหมด ต่อคน',s.byPatient.sxDcSum,'วัน','บวกทุกครั้งที่ผ่าตัดของคนนั้นเข้าด้วยกัน');
+  h+=days('ผ่าตัด → RAI ครั้งแรก',s.byPatient.firstRai,'วัน','นับเฉพาะ RAI ครั้งแรกของแต่ละคน');
+
+  h+='<div class="sect">ข. ต่อครั้ง — การรักษา 1 ครั้ง นับ 1 ค่า</div>';
+  h+=days('นอนโรงพยาบาล (รับไว้ → Discharge)',s.byEvent.los,'วัน','นับแยกทุกครั้งที่ผ่าตัด');
+  h+=days('ผ่าตัด → Discharge',s.byEvent.sxDc,'วัน','นับแยกทุกครั้งที่ผ่าตัด — ใช้เป็นฐานของตัวชี้วัดด้านบน');
+  h+=days('ผ่าตัด → RAI',s.byEvent.sxRai,'วัน','นับทุกครั้งที่ให้ RAI เทียบกับการผ่าตัดครั้งล่าสุดก่อนหน้า');
+
+  h+='<div class="card"><h3>ส่งออกเป็นตาราง</h3>'+
+     '<div class="muted" style="margin-top:6px">สร้าง 4 แท็บในไฟล์ Google Sheets — Dashboard, ตารางรายคน, ตารางผ่าตัด, ตาราง RAI — คำนวณจำนวนวันไว้ให้แล้ว นำไปทำสถิติต่อได้เลย</div>'+
+     '<button class="btn secondary" id="expBtn" onclick="exportDash()">ส่งออกลง Google Sheets</button></div>';
+
+  if(s.badDate) h+='<div class="card muted">ข้ามไป '+s.badDate+' รายการ เพราะวันที่เรียงลำดับไม่ถูกต้อง เช่น วัน Discharge มาก่อนวันผ่าตัด</div>';
+  h+='<div class="muted" style="margin-top:16px;text-align:center">อัปเดต '+esc(s.generated)+'</div>';
+  $('app').innerHTML=h;
+}
+function exportDash(){
+  var b=$('expBtn'); if(!b) return;
+  b.disabled=true; b.textContent='กำลังส่งออก...';
+  call('apiExportDashboard').then(function(m){
+    toast(m); b.disabled=false; b.textContent='ส่งออกอีกครั้ง';
+  }).catch(function(e){ fail(e); b.disabled=false; b.textContent='ส่งออกลง Google Sheets'; });
 }
 
 call('apiInit').then(showHome).catch(function(e){
