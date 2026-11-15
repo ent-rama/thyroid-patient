@@ -410,6 +410,24 @@ function showStats(){
     $('app').innerHTML='<div class="card muted">'+esc((e&&e.message)||e)+'</div>';
   });
 }
+function yearCard(y,k){
+  var h='<div class="card"><h3>'+(y.year==='ทุกปี'?'ทุกปีรวมกัน':(y.year==='ไม่ระบุปี'?'ไม่ระบุปี':'พ.ศ. '+esc(y.year)))+'</h3>'+
+    '<div class="big"><div><b>'+y.patients+'</b><span>ผู้ป่วยที่ผ่าตัด (คน)</span></div>'+
+    '<div><b>'+y.surgeries+'</b><span>ผ่าตัด (ครั้ง)</span></div>'+
+    kpiBox('ผ่านเกณฑ์ ต่อครั้ง',y.kpiSurg,'ครั้ง')+kpiBox('ผ่านเกณฑ์ ต่อคน',y.kpiPat,'คน')+'</div>'+
+    '<div style="margin-top:14px;font-weight:700;color:var(--brand-dark)">นอน รพ. หลังผ่าตัดกี่วัน</div>'+
+    '<div class="srow" style="margin-top:8px;color:var(--muted);font-size:14px"><span class="lbl">ช่วงวัน</span><span style="width:96px;text-align:right">ครั้ง</span><span style="width:96px;text-align:right">คน</span></div>';
+  for(var i=0;i<y.distSurg.length;i++){
+    var a=y.distSurg[i], b=y.distPat[i];
+    var ok = i<=2;
+    h+='<div class="srow" style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px">'+
+       '<span class="lbl" style="'+(ok?'color:var(--ok);font-weight:600':'')+'">'+esc(a.k)+'</span>'+
+       '<span style="width:96px;text-align:right"><b>'+a.v+'</b> <span class="muted">('+(a.pct===''?0:a.pct)+'%)</span></span>'+
+       '<span style="width:96px;text-align:right"><b>'+b.v+'</b> <span class="muted">('+(b.pct===''?0:b.pct)+'%)</span></span></div>';
+  }
+  if(y.unknownSurg||y.unknownPat) h+='<div class="muted" style="margin-top:10px">คำนวณไม่ได้ (ไม่มีวันผ่าตัดหรือ Discharge): '+y.unknownSurg+' ครั้ง · '+y.unknownPat+' คน</div>';
+  return h+'</div>';
+}
 function kpiBox(label,k,unit){
   if(!k||!k.total) return '<div><b>-</b><span>'+esc(label)+' · ยังไม่มีข้อมูล</span></div>';
   return '<div><b style="color:var(--ok)">'+k.pct+'%</b><span>'+esc(label)+'</span>'+
@@ -449,6 +467,11 @@ function renderStats(s){
   h+='<div class="card"><h3>ตัวชี้วัด: ผ่าตัด → Discharge ไม่เกิน '+s.kpi.days+' วัน</h3>'+
      '<div class="big">'+kpiBox('ต่อการผ่าตัด 1 ครั้ง',s.kpi,'ครั้ง')+kpiBox('ต่อคนไข้',s.kpi.patient,'คน')+'</div>'+
      '<div class="muted" style="margin-top:10px">ต่อคนไข้: ผ่านเมื่อ <b>ทุกครั้ง</b> ที่ผ่าตัดออก รพ. ภายใน '+s.kpi.days+' วัน</div></div>';
+
+  h+='<div class="sect">สรุปรายปี (นับจากปีที่ผ่าตัด)</div>';
+  h+='<div class="card muted" style="margin-top:10px">ต่อคน ใช้ค่าที่นานที่สุดของคนนั้นในปีนั้น เช่น ผ่าตัดครั้งแรกนอน 3 วัน ครั้งที่สองนอน 6 วัน จะนับอยู่ในช่วง 6 วัน และไม่ผ่านเกณฑ์</div>';
+  h+=yearCard(s.yearTotal);
+  (s.years||[]).forEach(function(y){h+=yearCard(y);});
 
   h+=bars('เพศ',s.gender,s.patients,'คน');
   h+=bars('ช่วงอายุ',s.ageBand,s.patients,'คน',

@@ -419,6 +419,54 @@ function ageBand_(a) {
   return '60 ปีขึ้นไป';
 }
 
+var DAY_BUCKETS = ['0-1 วัน', '2 วัน', '3 วัน', '4 วัน', '5 วัน', '6 วัน', '7 วันขึ้นไป'];
+
+function bucketLabel_(d) {
+  if (d <= 1) return DAY_BUCKETS[0];
+  if (d >= 7) return DAY_BUCKETS[6];
+  return DAY_BUCKETS[d - 1];
+}
+
+function pct1_(n, d) { return d ? Math.round(n / d * 1000) / 10 : ''; }
+
+// จำนวนและร้อยละในแต่ละช่วงวัน จากรายการจำนวนวัน
+function distOf_(vals) {
+  var m = {};
+  DAY_BUCKETS.forEach(function (b) { m[b] = 0; });
+  vals.forEach(function (d) { m[bucketLabel_(d)]++; });
+  return DAY_BUCKETS.map(function (b) { return { k: b, v: m[b], pct: pct1_(m[b], vals.length) }; });
+}
+
+// สรุปของกลุ่มหนึ่ง (ปีเดียว หรือทุกปี): surg = วันหลังผ่าตัดรายครั้ง, pat = {HN: วันที่นานที่สุด}
+function groupSummary_(label, g, limit) {
+  var patVals = Object.keys(g.pat).map(function (k) { return g.pat[k]; });
+  var sp = 0, pp = 0;
+  g.surg.forEach(function (d) { if (d <= limit) sp++; });
+  patVals.forEach(function (d) { if (d <= limit) pp++; });
+  return {
+    year: label,
+    patients: Object.keys(g.patSet).length,
+    surgeries: g.total,
+    kpiSurg: { pass: sp, total: g.surg.length, pct: pct1_(sp, g.surg.length) },
+    kpiPat: { pass: pp, total: patVals.length, pct: pct1_(pp, patVals.length) },
+    distSurg: distOf_(g.surg),
+    distPat: distOf_(patVals),
+    unknownSurg: g.total - g.surg.length,
+    unknownPat: Object.keys(g.patSet).length - patVals.length
+  };
+}
+
+function newGroup_() { return { surg: [], pat: {}, patSet: {}, total: 0 }; }
+
+function addToGroup_(g, e) {
+  g.total++;
+  g.patSet[e.HN] = 1;
+  if (e._sxDc !== null) {
+    g.surg.push(e._sxDc);
+    if (g.pat[e.HN] === undefined || e._sxDc > g.pat[e.HN]) g.pat[e.HN] = e._sxDc;
+  }
+}
+
 // คำนวณสถิติทั้งหมดจากชีต Patients + Events
 function computeStats_() {
   var pats = readRows_(patientsSheet_(), PAT_HEADERS.length).map(patientObj_)
@@ -537,6 +585,22 @@ function computeStats_() {
   kpiPat.pct = kpiPat.total ? Math.round(kpiPat.pass / kpiPat.total * 1000) / 10 : '';
   kpi.patient = kpiPat;
 
+  // ----- สรุปรายปี (นับปีจากวันที่ผ่าตัด พ.ศ.) -----
+  var yAll = newGroup_(), yMap = {};
+  sxRows.forEach(function (e) {
+    var y = (e._t === null || e._t === undefined) ? 'ไม่ระบุปี' : String(new Date(e._t).getUTCFullYear() + 543);
+    if (!yMap[y]) yMap[y] = newGroup_();
+    addToGroup_(yMap[y], e);
+    addToGroup_(yAll, e);
+  });
+  var yearKeys = Object.keys(yMap).sort(function (a, b) {
+    if (a === 'ไม่ระบุปี') return 1;
+    if (b === 'ไม่ระบุปี') return -1;
+    return (+b) - (+a);
+  });
+  var years = yearKeys.map(function (y) { return groupSummary_(y, yMap[y], KPI_DAYS); });
+  var yearTotal = groupSummary_('ทุกปี', yAll, KPI_DAYS);
+
   return {
     generated: now_(),
     patients: pats.length,
@@ -566,6 +630,8 @@ function computeStats_() {
     },
 
     kpi: kpi,
+    years: years,
+    yearTotal: yearTotal,
     badDate: badDate,
     _sxRows: sxRows, _raiRows: raiRows, _patRows: patRows, _byHn: byHn
   };
@@ -724,16 +790,51 @@ function writeRaiSheet_(ss, s) {
   writeTable_(resetSheet_(ss, 'ตาราง RAI'), H, rows, [0, 6, 9]);
 }
 
+function writeYearSheet_(ss, s) {
+  var sh = resetSheet_(ss, 'สรุปรายปี');
+  var R = [], hdr = [];
+  function line(a) { while (a.length < 6) a.push(''); R.push(a); }
+  function head(a) { hdr.push(R.length + 1); line(a); }
+  var all = [s.yearTotal].concat(s.years);
+
+  head(['สรุปรายปี (นับปีจากวันที่ผ่าตัด พ.ศ.)', '', '', '', '', '']);
+  line(['นอน รพ. = จำนวนวันหลังผ่าตัดจนถึง Discharge · ต่อคนใช้ค่าที่นานที่สุดของคนนั้น', '', '', '', '', '']);
+  line(['']);
+  head(['ปี พ.ศ.', 'ผู้ป่วย (คน)', 'ผ่าตัด (ครั้ง)', 'ผ่านเกณฑ์ ต่อครั้ง (%)', 'ผ่านเกณฑ์ ต่อคน (%)', 'เกณฑ์ (วัน)']);
+  all.forEach(function (y) {
+    line([y.year, y.patients, y.surgeries,
+      y.kpiSurg.total ? y.kpiSurg.pass + '/' + y.kpiSurg.total + ' = ' + y.kpiSurg.pct + '%' : '-',
+      y.kpiPat.total ? y.kpiPat.pass + '/' + y.kpiPat.total + ' = ' + y.kpiPat.pct + '%' : '-',
+      '≤ ' + s.kpi.days]);
+  });
+  all.forEach(function (y) {
+    line(['']);
+    head(['ปี ' + y.year + ' — ช่วงวันหลังผ่าตัด', 'จำนวนครั้ง', '% ของครั้ง', 'จำนวนคน', '% ของคน', '']);
+    for (var i = 0; i < DAY_BUCKETS.length; i++) {
+      line([y.distSurg[i].k, y.distSurg[i].v, y.distSurg[i].pct, y.distPat[i].v, y.distPat[i].pct, '']);
+    }
+    if (y.unknownSurg || y.unknownPat) {
+      line(['คำนวณไม่ได้ (ไม่มีวันผ่าตัดหรือ Discharge)', y.unknownSurg, '', y.unknownPat, '', '']);
+    }
+  });
+
+  sh.getRange(1, 1, R.length, 6).setValues(R);
+  hdr.forEach(function (r) { sh.getRange(r, 1, 1, 6).setFontWeight('bold').setBackground('#e3f2fd'); });
+  sh.setColumnWidth(1, 330);
+  for (var c = 2; c <= 6; c++) sh.setColumnWidth(c, 150);
+}
+
 function apiExportDashboard() {
   requireAuth_();
   var s = computeStats_();
   var ss = ss_();
   writeSummarySheet_(ss, s);
   writePatientSheet_(ss, s);
+  writeYearSheet_(ss, s);
   writeSurgerySheet_(ss, s);
   writeRaiSheet_(ss, s);
   SpreadsheetApp.flush();
-  return 'ส่งออกแล้ว 4 แท็บ: Dashboard, ตารางรายคน, ตารางผ่าตัด, ตาราง RAI';
+  return 'ส่งออกแล้ว 5 แท็บ: Dashboard, สรุปรายปี, ตารางรายคน, ตารางผ่าตัด, ตาราง RAI';
 }
 
 // รันฟังก์ชันนี้ในหน้า Apps Script เพื่อตรวจว่าการ Deploy มองเห็นผู้ใช้หรือไม่
