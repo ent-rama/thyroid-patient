@@ -13,13 +13,13 @@ var OLD_SHEET = 'Records';
 var USERS_SHEET = 'Users';
 var OWNER_EMAIL = 'nayika.to@gmail.com';
 
-var PAT_HEADERS = ['HN', 'ชื่อ', 'วันเกิด', 'อายุ', 'Tel', 'Dx', 'วันที่ Bx', 'Patho', 'ผู้บันทึก', 'เวลาบันทึก'];
-var PAT = { HN: 0, NAME: 1, BIRTH: 2, AGE: 3, TEL: 4, DX: 5, BX: 6, PATHO: 7, BY: 8, AT: 9 };
+var PAT_HEADERS = ['HN', 'ชื่อ', 'เพศ', 'วันเกิด', 'อายุ', 'Tel', 'Dx', 'วันที่ Bx', 'Patho', 'ผู้บันทึก', 'เวลาบันทึก'];
+var PAT = { HN: 0, NAME: 1, GENDER: 2, BIRTH: 3, AGE: 4, TEL: 5, DX: 6, BX: 7, PATHO: 8, BY: 9, AT: 10 };
 
-var EVT_HEADERS = ['ID', 'HN', 'ประเภท', 'ผ่าตัดครั้งที่', 'ผ่าตัดอะไร', 'วันที่ผ่าตัด', 'วันที่ Discharge',
+var EVT_HEADERS = ['ID', 'HN', 'ประเภท', 'ผ่าตัดครั้งที่', 'ผ่าตัดอะไร', 'วันที่รับไว้ รพ.', 'วันที่ผ่าตัด', 'วันที่ Discharge',
   'วันที่ RAI', 'ความแรง RAI (mCi)', 'Complication', 'หมายเหตุ', 'ผู้บันทึก', 'เวลาบันทึก'];
-var EVT = { ID: 0, HN: 1, TYPE: 2, SXNO: 3, PROC: 4, SXDATE: 5, DC: 6, RAIDATE: 7, RAIDOSE: 8,
-  COMP: 9, NOTE: 10, BY: 11, AT: 12 };
+var EVT = { ID: 0, HN: 1, TYPE: 2, SXNO: 3, PROC: 4, ADMIT: 5, SXDATE: 6, DC: 7, RAIDATE: 8, RAIDOSE: 9,
+  COMP: 10, NOTE: 11, BY: 12, AT: 13 };
 
 // ดัชนีคอลัมน์ของชีต Records เดิม (ใช้ตอนย้ายข้อมูลเท่านั้น)
 var OLD = { ID: 0, HN: 1, NAME: 2, BIRTH: 3, AGE: 4, TEL: 5, DX: 6, BX: 7, PATHO: 8,
@@ -51,9 +51,7 @@ function getSheet_(name, headers, textCols) {
   var ss = ss_();
   var sh = ss.getSheetByName(name);
   if (!sh) sh = ss.insertSheet(name);
-  if (sh.getLastRow() === 0 || sh.getRange(1, 1).getValue() !== headers[0]) {
-    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
-  }
+  sh.getRange(1, 1, 1, headers.length).setValues([headers]);
   sh.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#e3f2fd');
   sh.setFrozenRows(1);
   // คอลัมน์ HN, Tel, วันที่ เป็นข้อความ กัน Sheets แปลงค่าเอง
@@ -113,7 +111,7 @@ function readRows_(sh, width) {
 
 function patientObj_(r) {
   return {
-    HN: str_(r[PAT.HN]).trim(), NAME: str_(r[PAT.NAME]), BIRTH: str_(r[PAT.BIRTH]), AGE: str_(r[PAT.AGE]),
+    HN: str_(r[PAT.HN]).trim(), NAME: str_(r[PAT.NAME]), GENDER: str_(r[PAT.GENDER]), BIRTH: str_(r[PAT.BIRTH]), AGE: str_(r[PAT.AGE]),
     TEL: str_(r[PAT.TEL]), DX: str_(r[PAT.DX]), BX: str_(r[PAT.BX]), PATHO: str_(r[PAT.PATHO])
   };
 }
@@ -121,7 +119,7 @@ function patientObj_(r) {
 function eventObj_(r) {
   return {
     ID: str_(r[EVT.ID]), HN: str_(r[EVT.HN]).trim(), TYPE: str_(r[EVT.TYPE]), SXNO: str_(r[EVT.SXNO]),
-    PROC: str_(r[EVT.PROC]), SXDATE: str_(r[EVT.SXDATE]), DC: str_(r[EVT.DC]),
+    PROC: str_(r[EVT.PROC]), ADMIT: str_(r[EVT.ADMIT]), SXDATE: str_(r[EVT.SXDATE]), DC: str_(r[EVT.DC]),
     RAIDATE: str_(r[EVT.RAIDATE]), RAIDOSE: str_(r[EVT.RAIDOSE]), COMP: str_(r[EVT.COMP]), NOTE: str_(r[EVT.NOTE])
   };
 }
@@ -218,7 +216,7 @@ function savePatient_(ob, email) {
   }
   if (!ob.isNew && !found) throw new Error('ไม่พบ HN ' + hn);
 
-  var row = [hn, ob.NAME || '', ob.BIRTH || '', ob.AGE || '', ob.TEL || '', ob.DX || '',
+  var row = [hn, ob.NAME || '', ob.GENDER || '', ob.BIRTH || '', ob.AGE || '', ob.TEL || '', ob.DX || '',
     ob.BX || '', ob.PATHO || '', email, now_()];
   var sh = patientsSheet_();
   if (found) {
@@ -240,6 +238,7 @@ function saveEvent_(ob, email) {
   row[EVT.HN] = hn;
   row[EVT.TYPE] = ob.TYPE;
   row[EVT.SXNO] = ob.SXNO || '';
+  row[EVT.ADMIT] = ob.ADMIT || '';
   row[EVT.PROC] = ob.PROC || '';
   row[EVT.SXDATE] = ob.SXDATE || '';
   row[EVT.DC] = ob.DC || '';
@@ -332,7 +331,7 @@ function migrateRecordsToSplit_() {
 
   var prow = order.map(function (hn) {
     var p = patients[hn];
-    return [hn, p.NAME || '', p.BIRTH || '', p.AGE || '', p.TEL || '', p.DX || '', p.BX || '', p.PATHO || '', 'migration', now_()];
+    return [hn, p.NAME || '', '', p.BIRTH || '', p.AGE || '', p.TEL || '', p.DX || '', p.BX || '', p.PATHO || '', 'migration', now_()];
   });
   if (prow.length) pat.getRange(2, 1, prow.length, PAT_HEADERS.length).setValues(prow);
   if (events.length) evt.getRange(2, 1, events.length, EVT_HEADERS.length).setValues(events);

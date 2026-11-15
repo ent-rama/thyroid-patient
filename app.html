@@ -258,6 +258,7 @@ function renderPatient(){
   setTitle(p.NAME||('HN '+p.HN),true,'HN '+p.HN+(p.AGE?' · อายุ '+p.AGE+' ปี':'')+(p.TEL?' · '+p.TEL:''));
   var ev=cur.events.slice().sort(function(a,b){return sortKey(a)-sortKey(b)});
   var h='<div class="card"><h3>ข้อมูลผู้ป่วย</h3><div class="kv">'+
+    (p.GENDER?'<div><b>เพศ:</b> '+esc(p.GENDER)+'</div>':'')+
     '<div><b>Dx:</b> '+(esc(p.DX)||'-')+'</div>'+
     '<div><b>วันที่ Bx:</b> '+(esc(p.BX)||'-')+'</div>'+
     '<div><b>Patho:</b> '+(esc(p.PATHO)||'-')+'</div>'+
@@ -267,7 +268,7 @@ function renderPatient(){
   if(!ev.length) h+='<div class="muted" style="margin-top:6px">ยังไม่มีข้อมูล</div>';
   ev.forEach(function(e){
     var body = e.TYPE==='SX'
-      ? '<span class="tag">ผ่าตัดครั้งที่ '+esc(e.SXNO)+'</span><div><b>'+esc(e.PROC)+'</b></div><div class="muted">ผ่าตัด '+esc(e.SXDATE)+(e.DC?' · Discharge '+esc(e.DC):'')+'</div>'
+      ? '<span class="tag">ผ่าตัดครั้งที่ '+esc(e.SXNO)+'</span><div><b>'+esc(e.PROC)+'</b></div><div class="muted">'+(e.ADMIT?'รับไว้ '+esc(e.ADMIT)+' · ':'')+'ผ่าตัด '+esc(e.SXDATE)+(e.DC?' · Discharge '+esc(e.DC):'')+'</div>'
       : '<span class="tag rai">RAI</span><div><b>'+esc(e.RAIDOSE)+' mCi</b></div><div class="muted">'+esc(e.RAIDATE)+'</div>';
     h+='<div class="item" data-id="'+esc(e.ID)+'" onclick="editEvent(this.dataset.id)"><div>'+body+(e.COMP?'<div class="muted">Complication: '+esc(e.COMP)+'</div>':'')+(e.NOTE?'<div class="muted">หมายเหตุ: '+esc(e.NOTE)+'</div>':'')+'</div><span class="chev">›</span></div>';
   });
@@ -276,19 +277,30 @@ function renderPatient(){
 }
 
 /* ---------- ฟอร์มข้อมูลผู้ป่วย ---------- */
+var PATHO_OPTS=['PTC','FTC','MTC','ATC','Bethesda II','Bethesda III','อื่นๆ'];
+var GENDER_OPTS=['ชาย','หญิง'];
+function selectOpts(list,cur){return list.map(function(x){return '<option value="'+esc(x)+'"'+(cur===x?' selected':'')+'>'+esc(x)+'</option>'}).join('');}
 function patientFields(p){
   p=p||{};
+  var pathoIsOther = !!p.PATHO && PATHO_OPTS.indexOf(p.PATHO)<0;
+  var pathoSel = pathoIsOther ? 'อื่นๆ' : (p.PATHO||'');
   return '<label class="field-label" for="f_name">ชื่อ-สกุล <span class="req">*</span></label><input id="f_name" type="text" value="'+esc(p.NAME)+'" placeholder="เช่น สมชาย ใจดี">'+
     '<label class="field-label" for="f_hn">HN <span class="req">*</span></label><input id="f_hn" type="text" inputmode="numeric" value="'+esc(p.HN)+'"'+(p.HN?' readonly':'')+' placeholder="เลขประจำตัวผู้ป่วย">'+
+    '<label class="field-label" for="f_gender">เพศ <span class="req">*</span></label><select id="f_gender"><option value="">เลือก</option>'+selectOpts(GENDER_OPTS,p.GENDER||'')+'</select>'+
     dateField('f_birth','วันเกิด (ถ้าไม่ทราบ ให้ใส่อายุแทน)',p.BIRTH)+
     '<label class="field-label" for="f_age">อายุ (ปี)</label><input id="f_age" type="number" inputmode="numeric" value="'+esc(p.AGE)+'">'+
     '<label class="field-label" for="f_tel">Tel</label><input id="f_tel" type="tel" inputmode="tel" value="'+esc(p.TEL)+'" placeholder="0812345678">'+
     '<label class="field-label" for="f_dx">Dx</label><textarea id="f_dx">'+esc(p.DX)+'</textarea>'+
     dateField('f_bx','วันที่ Bx',p.BX)+
-    '<label class="field-label" for="f_patho">Patho</label><textarea id="f_patho">'+esc(p.PATHO)+'</textarea>';
+    '<label class="field-label" for="f_patho">Patho</label><select id="f_patho"><option value="">เลือก</option>'+selectOpts(PATHO_OPTS,pathoSel)+'</select>'+
+    '<input id="f_patho_other" type="text" placeholder="พิมพ์ชนิด Patho อื่น" value="'+esc(pathoIsOther?p.PATHO:'')+'" class="'+(pathoSel==='อื่นๆ'?'':'hidden')+'" style="margin-top:8px">';
 }
 function wireAge(){
   $('f_birth').addEventListener('input',function(){var a=calcAge(parseDate(this.value)); if(a!=='') $('f_age').value=a;});
+  $('f_patho').addEventListener('change',function(){
+    var o=$('f_patho_other'); var other=this.value==='อื่นๆ';
+    o.classList.toggle('hidden',!other); if(!other) o.value='';
+  });
 }
 function newPatient(){
   stack=[showHome]; setTitle('ผู้ป่วยใหม่',true,'กรอกข้อมูลผู้ป่วย');
@@ -303,9 +315,12 @@ function editInfo(){
 function savePatient(isNew){
   var b=readDate('f_birth'), x=readDate('f_bx');
   if(!b.ok||!x.ok){toast('รูปแบบวันที่ไม่ถูกต้อง (วว/ดด/ปปปป)');return;}
-  var o={NAME:$('f_name').value.trim(),HN:$('f_hn').value.trim(),BIRTH:b.val,AGE:$('f_age').value,TEL:$('f_tel').value.trim(),
-    DX:$('f_dx').value.trim(),BX:x.val,PATHO:$('f_patho').value.trim(),TYPE:'INFO'};
+  var pSel=$('f_patho').value;
+  var pathoVal = pSel==='อื่นๆ' ? $('f_patho_other').value.trim() : pSel;
+  var o={NAME:$('f_name').value.trim(),HN:$('f_hn').value.trim(),GENDER:$('f_gender').value,BIRTH:b.val,AGE:$('f_age').value,TEL:$('f_tel').value.trim(),
+    DX:$('f_dx').value.trim(),BX:x.val,PATHO:pathoVal,TYPE:'INFO'};
   if(!o.NAME){toast('กรุณากรอกชื่อ-สกุล');return;}
+  if(!o.GENDER){toast('กรุณาเลือกเพศ');return;}
   if(!o.HN){toast('กรุณากรอก HN');return;}
   o.isNew=!!isNew;
   call('apiSave',[o]).then(function(){toast('บันทึกแล้ว');openPatient(o.HN)}).catch(fail);
@@ -330,6 +345,7 @@ function eventForm(){
       '<label class="field-label">ผ่าตัดอะไร <span class="req">*</span></label>'+
       PROCS.map(function(x){return '<label class="check"><input type="checkbox" class="proc" value="'+esc(x)+'"'+(chosen.indexOf(x)>=0?' checked':'')+'><span>'+esc(x)+'</span></label>'}).join('')+
       '<label class="field-label" for="e_other">อื่นๆ (พิมพ์เพิ่มได้)</label><input id="e_other" type="text" value="'+esc(other)+'">'+
+      dateField('e_admit','วันที่รับไว้ รพ.',e.ADMIT)+
       dateField('e_date','วันที่ผ่าตัด <span class="req">*</span>',e.SXDATE)+
       dateField('e_dc','วันที่ Discharge',e.DC);
   } else {
@@ -346,8 +362,9 @@ function eventForm(){
 }
 function saveEvent(){
   var e=editing, p=cur.patient;
+  var d0=e.TYPE==='SX'?readDate('e_admit'):{ok:true,val:''};
   var d1=readDate('e_date'), d2=e.TYPE==='SX'?readDate('e_dc'):{ok:true,val:''};
-  if(!d1.ok||!d2.ok){toast('รูปแบบวันที่ไม่ถูกต้อง (วว/ดด/ปปปป)');return;}
+  if(!d0.ok||!d1.ok||!d2.ok){toast('รูปแบบวันที่ไม่ถูกต้อง (วว/ดด/ปปปป)');return;}
   var o={ID:e.ID||'',TYPE:e.TYPE,HN:p.HN,NAME:p.NAME,BIRTH:p.BIRTH,AGE:p.AGE,TEL:p.TEL,DX:p.DX,BX:p.BX,PATHO:p.PATHO,
     COMP:$('e_comp').value.trim(),NOTE:$('e_note').value.trim()};
   if(e.TYPE==='SX'){
@@ -355,7 +372,7 @@ function saveEvent(){
     var other=$('e_other').value.trim(); if(other) procs.push(other);
     if(!procs.length){toast('กรุณาเลือกชนิดการผ่าตัด');return;}
     if(!d1.val){toast('กรุณากรอกวันที่ผ่าตัด');return;}
-    o.SXNO=$('e_no').value; o.PROC=procs.join(', '); o.SXDATE=d1.val; o.DC=d2.val;
+    o.SXNO=$('e_no').value; o.PROC=procs.join(', '); o.ADMIT=d0.val; o.SXDATE=d1.val; o.DC=d2.val;
   } else {
     if(!d1.val){toast('กรุณากรอกวันที่ RAI');return;}
     if(!$('e_dose').value){toast('กรุณาเลือกความแรง');return;}
