@@ -26,12 +26,8 @@ var OLD = { ID: 0, HN: 1, NAME: 2, BIRTH: 3, AGE: 4, TEL: 5, DX: 6, BX: 7, PATHO
   TYPE: 9, SXNO: 10, PROC: 11, SXDATE: 12, DC: 13, RAIDATE: 14, RAIDOSE: 15,
   COMP: 16, NOTE: 17, BY: 18, AT: 19 };
 
-// ---------- หน้าเว็บ / ทางเข้า API ----------
+// ---------- หน้าเว็บ ----------
 function doGet(e) {
-  var action = (e && e.parameter && e.parameter.action) || '';
-  if (action) {
-    return handleApi_(action, e.parameter);
-  }
   var email = Session.getActiveUser().getEmail();
   var t;
   if (!isAllowed_(email)) {
@@ -46,55 +42,6 @@ function doGet(e) {
   return t.setTitle('ทะเบียนผู้ป่วย Head&Neck')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
-
-function doPost(e) {
-  var body = {};
-  try { body = JSON.parse(e.postData.contents); } catch (x) {}
-  return handleApi_(body.action || '', body);
-}
-
-function handleApi_(action, params) {
-  var callback = params.callback || '';
-  try {
-    var result;
-    switch (action) {
-      case 'init':
-        result = apiInit();
-        break;
-      case 'search':
-        result = apiSearch(params.q || '');
-        break;
-      case 'getPatient':
-        result = apiGetPatient(params.hn || '');
-        break;
-      case 'save':
-        var data = params.data;
-        if (typeof data === 'string') { try { data = JSON.parse(data); } catch (x) {} }
-        result = apiSave(data || params);
-        break;
-      case 'delete':
-        result = apiDelete(params.id || '');
-        break;
-      case 'migrate':
-        result = migrateAsOwner_();
-        break;
-      default:
-        result = { error: 'Unknown action: ' + action };
-    }
-    return jsonpOrJson_(result, callback);
-  } catch (err) {
-    return jsonpOrJson_({ error: err.message }, callback);
-  }
-}
-
-function jsonpOrJson_(data, callback) {
-  var json = JSON.stringify(data);
-  if (callback) {
-    return ContentService.createTextOutput(callback + '(' + json + ')')
-      .setMimeType(ContentService.MimeType.JAVASCRIPT);
-  }
-  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
 }
 
 // ---------- ชีตและสิทธิ์ ----------
