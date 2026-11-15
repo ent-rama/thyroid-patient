@@ -412,6 +412,8 @@ function showStats(){
 }
 function yearCard(y,k){
   var h='<div class="card"><h3>'+(y.year==='ทุกปี'?'ทุกปีรวมกัน':(y.year==='ไม่ระบุปี'?'ไม่ระบุปี':'พ.ศ. '+esc(y.year)))+'</h3>'+
+    '<div class="big"><div style="flex:1 1 100%"><b>'+y.regTotal+'</b><span>ผู้ป่วยทั้งหมด (คน) · เคยผ่าตัด '+y.regSx+' · ไม่ผ่าตัด '+y.regNoSx+'</span></div></div>'+
+    '<div style="margin-top:14px;font-weight:700;color:var(--brand-dark)">การผ่าตัด'+(y.year==='ทุกปี'?'':' ที่ทำในปีนี้')+'</div>'+
     '<div class="big"><div><b>'+y.patients+'</b><span>ผู้ป่วยที่ผ่าตัด (คน)</span></div>'+
     '<div><b>'+y.surgeries+'</b><span>ผ่าตัด (ครั้ง)</span></div>'+
     kpiBox('ผ่านเกณฑ์ ต่อครั้ง',y.kpiSurg,'ครั้ง')+kpiBox('ผ่านเกณฑ์ ต่อคน',y.kpiPat,'คน')+'</div>'+
@@ -468,8 +470,8 @@ function renderStats(s){
      '<div class="big">'+kpiBox('ต่อการผ่าตัด 1 ครั้ง',s.kpi,'ครั้ง')+kpiBox('ต่อคนไข้',s.kpi.patient,'คน')+'</div>'+
      '<div class="muted" style="margin-top:10px">ต่อคนไข้: ผ่านเมื่อ <b>ทุกครั้ง</b> ที่ผ่าตัดออก รพ. ภายใน '+s.kpi.days+' วัน</div></div>';
 
-  h+='<div class="sect">สรุปรายปี (นับจากปีที่ผ่าตัด)</div>';
-  h+='<div class="card muted" style="margin-top:10px">ต่อคน ใช้ค่าที่นานที่สุดของคนนั้นในปีนั้น เช่น ผ่าตัดครั้งแรกนอน 3 วัน ครั้งที่สองนอน 6 วัน จะนับอยู่ในช่วง 6 วัน และไม่ผ่านเกณฑ์</div>';
+  h+='<div class="sect">สรุปรายปี</div>';
+  h+='<div class="card muted" style="margin-top:10px">ผู้ป่วยทั้งหมดนับตามปีที่ Bx (ถ้าไม่มี Bx ใช้ปีของการรักษาครั้งแรก) ส่วนข้อมูลผ่าตัดนับตามปีที่ผ่าตัด<br>ต่อคน ใช้ค่าที่นานที่สุดของคนนั้นในปีนั้น เช่น ผ่าตัดครั้งแรกนอน 3 วัน ครั้งที่สองนอน 6 วัน จะนับอยู่ในช่วง 6 วัน และไม่ผ่านเกณฑ์</div>';
   h+=yearCard(s.yearTotal);
   (s.years||[]).forEach(function(y){h+=yearCard(y);});
 

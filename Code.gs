@@ -593,6 +593,21 @@ function computeStats_() {
     addToGroup_(yMap[y], e);
     addToGroup_(yAll, e);
   });
+  // ปีของผู้ป่วย: ปีที่ Bx ถ้าไม่มีใช้ปีของการรักษาครั้งแรก ถ้าไม่มีอีกจึงเป็น 'ไม่ระบุปี'
+  var pyMap = {};
+  patRows.forEach(function (r) {
+    var t = parseThaiDate_(r.p.BX);
+    if (t === null) {
+      (evByHn[r.p.HN] || []).forEach(function (e) {
+        if (e._t !== null && e._t !== undefined && (t === null || e._t < t)) t = e._t;
+      });
+    }
+    var y = (t === null) ? 'ไม่ระบุปี' : String(new Date(t).getUTCFullYear() + 543);
+    if (!pyMap[y]) pyMap[y] = { total: 0, withSx: 0, noSx: 0 };
+    pyMap[y].total++;
+    if (r.nsx) pyMap[y].withSx++; else pyMap[y].noSx++;
+    if (!yMap[y]) yMap[y] = newGroup_();
+  });
   var yearKeys = Object.keys(yMap).sort(function (a, b) {
     if (a === 'ไม่ระบุปี') return 1;
     if (b === 'ไม่ระบุปี') return -1;
@@ -600,6 +615,13 @@ function computeStats_() {
   });
   var years = yearKeys.map(function (y) { return groupSummary_(y, yMap[y], KPI_DAYS); });
   var yearTotal = groupSummary_('ทุกปี', yAll, KPI_DAYS);
+  years.forEach(function (y) {
+    var q = pyMap[y.year] || { total: 0, withSx: 0, noSx: 0 };
+    y.regTotal = q.total; y.regSx = q.withSx; y.regNoSx = q.noSx;
+  });
+  yearTotal.regTotal = pats.length;
+  yearTotal.regSx = withSx;
+  yearTotal.regNoSx = pats.length - withSx;
 
   return {
     generated: now_(),
@@ -793,19 +815,19 @@ function writeRaiSheet_(ss, s) {
 function writeYearSheet_(ss, s) {
   var sh = resetSheet_(ss, 'สรุปรายปี');
   var R = [], hdr = [];
-  function line(a) { while (a.length < 6) a.push(''); R.push(a); }
+  function line(a) { while (a.length < 8) a.push(''); R.push(a); }
   function head(a) { hdr.push(R.length + 1); line(a); }
   var all = [s.yearTotal].concat(s.years);
 
-  head(['สรุปรายปี (นับปีจากวันที่ผ่าตัด พ.ศ.)', '', '', '', '', '']);
-  line(['นอน รพ. = จำนวนวันหลังผ่าตัดจนถึง Discharge · ต่อคนใช้ค่าที่นานที่สุดของคนนั้น', '', '', '', '', '']);
+  head(['สรุปรายปี', '', '', '', '', '', '', '']);
+  line(['ผู้ป่วยทั้งหมดนับตามปีที่ Bx (ถ้าไม่มี Bx ใช้ปีของการรักษาครั้งแรก) · ข้อมูลผ่าตัดนับตามปีที่ผ่าตัด', '']);
+  line(['นอน รพ. = จำนวนวันหลังผ่าตัดจนถึง Discharge · ต่อคนใช้ค่าที่นานที่สุดของคนนั้น', '']);
   line(['']);
-  head(['ปี พ.ศ.', 'ผู้ป่วย (คน)', 'ผ่าตัด (ครั้ง)', 'ผ่านเกณฑ์ ต่อครั้ง (%)', 'ผ่านเกณฑ์ ต่อคน (%)', 'เกณฑ์ (วัน)']);
+  head(['ปี พ.ศ.', 'ผู้ป่วยทั้งหมด (ปี Bx)', 'ในนั้นเคยผ่าตัด', 'ในนั้นไม่ผ่าตัด', 'ผู้ป่วยที่ผ่าตัด (ปีผ่าตัด)', 'ผ่าตัด (ครั้ง)', 'ผ่านเกณฑ์ ต่อครั้ง', 'ผ่านเกณฑ์ ต่อคน']);
   all.forEach(function (y) {
-    line([y.year, y.patients, y.surgeries,
+    line([y.year, y.regTotal, y.regSx, y.regNoSx, y.patients, y.surgeries,
       y.kpiSurg.total ? y.kpiSurg.pass + '/' + y.kpiSurg.total + ' = ' + y.kpiSurg.pct + '%' : '-',
-      y.kpiPat.total ? y.kpiPat.pass + '/' + y.kpiPat.total + ' = ' + y.kpiPat.pct + '%' : '-',
-      '≤ ' + s.kpi.days]);
+      y.kpiPat.total ? y.kpiPat.pass + '/' + y.kpiPat.total + ' = ' + y.kpiPat.pct + '%' : '-']);
   });
   all.forEach(function (y) {
     line(['']);
@@ -818,10 +840,10 @@ function writeYearSheet_(ss, s) {
     }
   });
 
-  sh.getRange(1, 1, R.length, 6).setValues(R);
-  hdr.forEach(function (r) { sh.getRange(r, 1, 1, 6).setFontWeight('bold').setBackground('#e3f2fd'); });
+  sh.getRange(1, 1, R.length, 8).setValues(R);
+  hdr.forEach(function (r) { sh.getRange(r, 1, 1, 8).setFontWeight('bold').setBackground('#e3f2fd'); });
   sh.setColumnWidth(1, 330);
-  for (var c = 2; c <= 6; c++) sh.setColumnWidth(c, 150);
+  for (var c = 2; c <= 8; c++) sh.setColumnWidth(c, 150);
 }
 
 function apiExportDashboard() {
