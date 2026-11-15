@@ -262,6 +262,7 @@ function renderPatient(){
     '<div><b>Dx:</b> '+(esc(p.DX)||'-')+'</div>'+
     '<div><b>วันที่ Bx:</b> '+(esc(p.BX)||'-')+'</div>'+
     '<div><b>Patho:</b> '+(esc(p.PATHO)||'-')+'</div>'+
+    (p.PATHONOTE?'<div><b>Patho เพิ่มเติม:</b> '+esc(p.PATHONOTE)+'</div>':'')+
     (p.BIRTH?'<div><b>วันเกิด:</b> '+esc(p.BIRTH)+'</div>':'')+'</div>'+
     '<button class="btn secondary" onclick="editInfo()">แก้ไขข้อมูลผู้ป่วย</button></div>';
   h+='<div class="card"><h3>การรักษา</h3>';
@@ -293,7 +294,9 @@ function patientFields(p){
     '<label class="field-label" for="f_dx">Dx</label><textarea id="f_dx">'+esc(p.DX)+'</textarea>'+
     dateField('f_bx','วันที่ Bx',p.BX)+
     '<label class="field-label" for="f_patho">Patho</label><select id="f_patho"><option value="">เลือก</option>'+selectOpts(PATHO_OPTS,pathoSel)+'</select>'+
-    '<input id="f_patho_other" type="text" placeholder="พิมพ์ชนิด Patho อื่น" value="'+esc(pathoIsOther?p.PATHO:'')+'" class="'+(pathoSel==='อื่นๆ'?'':'hidden')+'" style="margin-top:8px">';
+    '<input id="f_patho_other" type="text" placeholder="พิมพ์ชนิด Patho อื่น" value="'+esc(pathoIsOther?p.PATHO:'')+'" class="'+(pathoSel==='อื่นๆ'?'':'hidden')+'" style="margin-top:8px">'+
+    '<label class="field-label" for="f_patho_note">รายละเอียด Patho เพิ่มเติม</label>'+
+    '<textarea id="f_patho_note" placeholder="เช่น Bx: Bethesda III → ผลหลังผ่าตัด: PTC, ต่อมน้ำเหลือง 2/15">'+esc(p.PATHONOTE)+'</textarea>';
 }
 function wireAge(){
   $('f_birth').addEventListener('input',function(){var a=calcAge(parseDate(this.value)); if(a!=='') $('f_age').value=a;});
@@ -318,7 +321,7 @@ function savePatient(isNew){
   var pSel=$('f_patho').value;
   var pathoVal = pSel==='อื่นๆ' ? $('f_patho_other').value.trim() : pSel;
   var o={NAME:$('f_name').value.trim(),HN:$('f_hn').value.trim(),GENDER:$('f_gender').value,BIRTH:b.val,AGE:$('f_age').value,TEL:$('f_tel').value.trim(),
-    DX:$('f_dx').value.trim(),BX:x.val,PATHO:pathoVal,TYPE:'INFO'};
+    DX:$('f_dx').value.trim(),BX:x.val,PATHO:pathoVal,PATHONOTE:$('f_patho_note').value.trim(),TYPE:'INFO'};
   if(!o.NAME){toast('กรุณากรอกชื่อ-สกุล');return;}
   if(!o.GENDER){toast('กรุณาเลือกเพศ');return;}
   if(!o.HN){toast('กรุณากรอก HN');return;}

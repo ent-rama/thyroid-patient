@@ -13,8 +13,8 @@ var OLD_SHEET = 'Records';
 var USERS_SHEET = 'Users';
 var OWNER_EMAIL = 'nayika.to@gmail.com';
 
-var PAT_HEADERS = ['HN', 'ชื่อ', 'เพศ', 'วันเกิด', 'อายุ', 'Tel', 'Dx', 'วันที่ Bx', 'Patho', 'ผู้บันทึก', 'เวลาบันทึก'];
-var PAT = { HN: 0, NAME: 1, GENDER: 2, BIRTH: 3, AGE: 4, TEL: 5, DX: 6, BX: 7, PATHO: 8, BY: 9, AT: 10 };
+var PAT_HEADERS = ['HN', 'ชื่อ', 'เพศ', 'วันเกิด', 'อายุ', 'Tel', 'Dx', 'วันที่ Bx', 'Patho', 'Patho เพิ่มเติม', 'ผู้บันทึก', 'เวลาบันทึก'];
+var PAT = { HN: 0, NAME: 1, GENDER: 2, BIRTH: 3, AGE: 4, TEL: 5, DX: 6, BX: 7, PATHO: 8, PATHONOTE: 9, BY: 10, AT: 11 };
 
 var EVT_HEADERS = ['ID', 'HN', 'ประเภท', 'ผ่าตัดครั้งที่', 'ผ่าตัดอะไร', 'วันที่รับไว้ รพ.', 'วันที่ผ่าตัด', 'วันที่ Discharge',
   'วันที่ RAI', 'ความแรง RAI (mCi)', 'Complication', 'หมายเหตุ', 'ผู้บันทึก', 'เวลาบันทึก'];
@@ -112,7 +112,8 @@ function readRows_(sh, width) {
 function patientObj_(r) {
   return {
     HN: str_(r[PAT.HN]).trim(), NAME: str_(r[PAT.NAME]), GENDER: str_(r[PAT.GENDER]), BIRTH: str_(r[PAT.BIRTH]), AGE: str_(r[PAT.AGE]),
-    TEL: str_(r[PAT.TEL]), DX: str_(r[PAT.DX]), BX: str_(r[PAT.BX]), PATHO: str_(r[PAT.PATHO])
+    TEL: str_(r[PAT.TEL]), DX: str_(r[PAT.DX]), BX: str_(r[PAT.BX]), PATHO: str_(r[PAT.PATHO]),
+    PATHONOTE: str_(r[PAT.PATHONOTE])
   };
 }
 
@@ -217,7 +218,7 @@ function savePatient_(ob, email) {
   if (!ob.isNew && !found) throw new Error('ไม่พบ HN ' + hn);
 
   var row = [hn, ob.NAME || '', ob.GENDER || '', ob.BIRTH || '', ob.AGE || '', ob.TEL || '', ob.DX || '',
-    ob.BX || '', ob.PATHO || '', email, now_()];
+    ob.BX || '', ob.PATHO || '', ob.PATHONOTE || '', email, now_()];
   var sh = patientsSheet_();
   if (found) {
     sh.getRange(found.row, 1, 1, row.length).setValues([row]);
@@ -331,7 +332,7 @@ function migrateRecordsToSplit_() {
 
   var prow = order.map(function (hn) {
     var p = patients[hn];
-    return [hn, p.NAME || '', '', p.BIRTH || '', p.AGE || '', p.TEL || '', p.DX || '', p.BX || '', p.PATHO || '', 'migration', now_()];
+    return [hn, p.NAME || '', '', p.BIRTH || '', p.AGE || '', p.TEL || '', p.DX || '', p.BX || '', p.PATHO || '', '', 'migration', now_()];
   });
   if (prow.length) pat.getRange(2, 1, prow.length, PAT_HEADERS.length).setValues(prow);
   if (events.length) evt.getRange(2, 1, events.length, EVT_HEADERS.length).setValues(events);
