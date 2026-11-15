@@ -31,11 +31,23 @@ function doGet(e) {
   var email = Session.getActiveUser().getEmail();
   var t;
   if (!isAllowed_(email)) {
+    var hint;
+    if (email) {
+      hint = 'กรุณาติดต่อผู้ดูแลเพื่อเพิ่มอีเมลนี้ในชีต Users';
+    } else {
+      var eff = '';
+      try { eff = Session.getEffectiveUser().getEmail(); } catch (err) { eff = ''; }
+      hint = eff
+        ? '<b>ระบบมองไม่เห็นว่าใครกำลังเข้าใช้</b><br>สาเหตุ: การ Deploy ตั้งเป็น "ดำเนินการในชื่อ: ฉัน"<br>' +
+          'ผู้ดูแลต้องแก้เป็น <b>"ดำเนินการในชื่อ: ผู้ใช้ที่เข้าถึงเว็บแอป"</b> แล้ว Deploy เวอร์ชันใหม่'
+        : 'กรุณาลงชื่อเข้าใช้ Google ด้วยบัญชีที่ได้รับอนุญาต แล้วเปิดลิงก์นี้อีกครั้ง';
+    }
     t = HtmlService.createHtmlOutput(
       '<meta name="viewport" content="width=device-width,initial-scale=1">' +
-      '<body style="font-family:sans-serif;padding:24px;text-align:center">' +
-      '<h3>ไม่มีสิทธิ์เข้าใช้งาน</h3><p>บัญชี: ' + (email || '(ไม่ทราบ)') +
-      '</p><p>กรุณาติดต่อผู้ดูแลเพื่อเพิ่มอีเมลในชีต Users</p></body>');
+      '<body style="font-family:sans-serif;padding:24px;text-align:center;line-height:1.7">' +
+      '<h3>ไม่มีสิทธิ์เข้าใช้งาน</h3><p>บัญชี: ' +
+      (email ? String(email).replace(/[<>&]/g, '') : '(ไม่ทราบ)') +
+      '</p><p>' + hint + '</p></body>');
   } else {
     t = HtmlService.createHtmlOutputFromFile('index');
   }
@@ -703,4 +715,14 @@ function apiExportDashboard() {
   writeRaiSheet_(ss, s);
   SpreadsheetApp.flush();
   return 'ส่งออกแล้ว 4 แท็บ: Dashboard, ตารางรายคน, ตารางผ่าตัด, ตาราง RAI';
+}
+
+// รันฟังก์ชันนี้ในหน้า Apps Script เพื่อตรวจว่าการ Deploy มองเห็นผู้ใช้หรือไม่
+function whoAmI() {
+  var a = '', b = '';
+  try { a = Session.getActiveUser().getEmail(); } catch (e) { a = 'error'; }
+  try { b = Session.getEffectiveUser().getEmail(); } catch (e) { b = 'error'; }
+  Logger.log('ActiveUser (คนที่กำลังเข้า): ' + (a || '(ว่าง)'));
+  Logger.log('EffectiveUser (เจ้าของสคริปต์): ' + (b || '(ว่าง)'));
+  return { active: a, effective: b };
 }
