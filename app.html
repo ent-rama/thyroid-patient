@@ -428,6 +428,30 @@ function yearCard(y,k){
   if(y.unknownSurg||y.unknownPat) h+='<div class="muted" style="margin-top:10px">คำนวณไม่ได้ (ไม่มีวันผ่าตัดหรือ Discharge): '+y.unknownSurg+' ครั้ง · '+y.unknownPat+' คน</div>';
   return h+'</div>';
 }
+function raiCard(y,lim){
+  var title = y.year==='ทุกปี' ? 'ทุกปีรวมกัน' : (y.year==='ไม่ระบุปี' ? 'ไม่ระบุปี' : 'พ.ศ. '+esc(y.year));
+  var h='<div class="card"><h3>'+title+'</h3>'+
+    '<div class="big"><div><b>'+y.patients+'</b><span>ผู้ป่วยที่ได้ RAI (คน)</span></div>'+
+    '<div><b>'+y.rai+'</b><span>RAI (ครั้ง)</span></div>'+
+    kpiBox('ภายใน '+lim+' วัน ต่อครั้ง',y.kpiRai,'ครั้ง')+kpiBox('ภายใน '+lim+' วัน ต่อคน',y.kpiPat,'คน')+'</div>';
+  if(y.days&&y.days.n){
+    h+='<div class="muted" style="margin-top:12px">หลังผ่าตัดกี่วันถึงได้ RAI (คำนวณได้ '+y.days.n+' ครั้ง)</div>'+
+       '<div class="big"><div><b>'+y.days.mean+'</b><span>เฉลี่ย (วัน)</span></div><div><b>'+y.weeks.mean+'</b><span>เฉลี่ย (สัปดาห์)</span></div>'+
+       '<div><b>'+y.days.median+'</b><span>มัธยฐาน (วัน)</span></div><div><b>'+y.weeks.median+'</b><span>มัธยฐาน (สัปดาห์)</span></div>'+
+       '<div><b>'+y.days.min+'–'+y.days.max+'</b><span>ต่ำสุด–สูงสุด (วัน)</span></div><div><b>'+y.weeks.min+'–'+y.weeks.max+'</b><span>ต่ำสุด–สูงสุด (สัปดาห์)</span></div></div>';
+  }
+  h+='<div style="margin-top:14px;font-weight:700;color:var(--brand-dark)">ได้ RAI หลังผ่าตัดกี่วัน</div>'+
+    '<div class="srow" style="margin-top:8px;color:var(--muted);font-size:14px"><span class="lbl">ช่วงเวลา</span><span style="width:96px;text-align:right">ครั้ง</span><span style="width:96px;text-align:right">คน</span></div>';
+  for(var i=0;i<y.distRai.length;i++){
+    var a=y.distRai[i], b=y.distPat[i], ok=(i<y.distRai.length-1);
+    h+='<div class="srow" style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px">'+
+       '<span class="lbl" style="'+(ok?'color:var(--ok);font-weight:600':'')+'">'+esc(a.k)+'<span class="muted" style="display:block;font-weight:400">'+esc(a.wk)+'</span></span>'+
+       '<span style="width:96px;text-align:right"><b>'+a.v+'</b> <span class="muted">('+(a.pct===''?0:a.pct)+'%)</span></span>'+
+       '<span style="width:96px;text-align:right"><b>'+b.v+'</b> <span class="muted">('+(b.pct===''?0:b.pct)+'%)</span></span></div>';
+  }
+  if(y.unknownRai||y.unknownPat) h+='<div class="muted" style="margin-top:10px">คำนวณไม่ได้ (ไม่มีวันผ่าตัดก่อนหน้า): '+y.unknownRai+' ครั้ง · '+y.unknownPat+' คน</div>';
+  return h+'</div>';
+}
 function kpiBox(label,k,unit){
   if(!k||!k.total) return '<div><b>-</b><span>'+esc(label)+' · ยังไม่มีข้อมูล</span></div>';
   return '<div><b style="color:var(--ok)">'+k.pct+'%</b><span>'+esc(label)+'</span>'+
@@ -472,6 +496,13 @@ function renderStats(s){
   h+='<div class="card muted" style="margin-top:10px">ต่อคน ใช้ค่าที่นานที่สุดของคนนั้นในปีนั้น เช่น ผ่าตัดครั้งแรกนอน 3 วัน ครั้งที่สองนอน 6 วัน จะนับอยู่ในช่วง 6 วัน และไม่ผ่านเกณฑ์</div>';
   h+=yearCard(s.yearTotal);
   (s.years||[]).forEach(function(y){h+=yearCard(y);});
+
+  if(s.rai){
+    h+='<div class="sect">RAI (กลืนแร่) รายปี</div>';
+    h+='<div class="card muted" style="margin-top:10px">นับปีจากวันที่กลืนแร่ แต่ละครั้งนับวันจากการผ่าตัดครั้งล่าสุดก่อนหน้า ตัวชี้วัดคือภายใน '+s.rai.limit+' วันหลังผ่าตัด ต่อคนใช้ค่าที่นานที่สุดของคนนั้น</div>';
+    h+=raiCard(s.rai.total,s.rai.limit);
+    (s.rai.years||[]).forEach(function(y){h+=raiCard(y,s.rai.limit);});
+  }
 
   h+=bars('เพศ',s.gender,s.patients,'คน');
   h+=bars('ช่วงอายุ',s.ageBand,s.patients,'คน',

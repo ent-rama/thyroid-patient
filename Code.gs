@@ -458,13 +458,65 @@ function groupSummary_(label, g, limit) {
 
 function newGroup_() { return { surg: [], pat: {}, patSet: {}, total: 0 }; }
 
-function addToGroup_(g, e) {
+function addToGroup_(g, e, field) {
+  field = field || '_sxDc';
+  var d = e[field];
   g.total++;
   g.patSet[e.HN] = 1;
-  if (e._sxDc !== null) {
-    g.surg.push(e._sxDc);
-    if (g.pat[e.HN] === undefined || e._sxDc > g.pat[e.HN]) g.pat[e.HN] = e._sxDc;
+  if (d !== null && d !== undefined) {
+    g.surg.push(d);
+    if (g.pat[e.HN] === undefined || d > g.pat[e.HN]) g.pat[e.HN] = d;
   }
+}
+
+var RAI_LIMIT = 180;
+var RAI_BUCKETS = [
+  { k: '0-30 วัน', wk: '0-4 สัปดาห์', max: 30 },
+  { k: '31-60 วัน', wk: '4-9 สัปดาห์', max: 60 },
+  { k: '61-90 วัน', wk: '9-13 สัปดาห์', max: 90 },
+  { k: '91-120 วัน', wk: '13-17 สัปดาห์', max: 120 },
+  { k: '121-150 วัน', wk: '17-21 สัปดาห์', max: 150 },
+  { k: '151-180 วัน', wk: '21-26 สัปดาห์', max: 180 },
+  { k: 'มากกว่า 180 วัน', wk: 'มากกว่า 26 สัปดาห์', max: Infinity }
+];
+
+function raiDistOf_(vals) {
+  var c = RAI_BUCKETS.map(function () { return 0; });
+  vals.forEach(function (d) {
+    for (var i = 0; i < RAI_BUCKETS.length; i++) {
+      if (d <= RAI_BUCKETS[i].max) { c[i]++; break; }
+    }
+  });
+  return RAI_BUCKETS.map(function (b, i) {
+    return { k: b.k, wk: b.wk, v: c[i], pct: pct1_(c[i], vals.length) };
+  });
+}
+
+function weeksStat_(st) {
+  if (!st.n) return { n: 0, mean: '', median: '', min: '', max: '' };
+  function w(x) { return Math.round(x / 7 * 10) / 10; }
+  return { n: st.n, mean: w(st.mean), median: w(st.median), min: w(st.min), max: w(st.max) };
+}
+
+function raiGroupSummary_(label, g) {
+  var patVals = Object.keys(g.pat).map(function (k) { return g.pat[k]; });
+  var sp = 0, pp = 0;
+  g.surg.forEach(function (d) { if (d <= RAI_LIMIT) sp++; });
+  patVals.forEach(function (d) { if (d <= RAI_LIMIT) pp++; });
+  var st = stat_(g.surg);
+  return {
+    year: label,
+    patients: Object.keys(g.patSet).length,
+    rai: g.total,
+    kpiRai: { pass: sp, total: g.surg.length, pct: pct1_(sp, g.surg.length) },
+    kpiPat: { pass: pp, total: patVals.length, pct: pct1_(pp, patVals.length) },
+    days: st,
+    weeks: weeksStat_(st),
+    distRai: raiDistOf_(g.surg),
+    distPat: raiDistOf_(patVals),
+    unknownRai: g.total - g.surg.length,
+    unknownPat: Object.keys(g.patSet).length - patVals.length
+  };
 }
 
 // คำนวณสถิติทั้งหมดจากชีต Patients + Events
@@ -601,6 +653,26 @@ function computeStats_() {
   var years = yearKeys.map(function (y) { return groupSummary_(y, yMap[y], KPI_DAYS); });
   var yearTotal = groupSummary_('ทุกปี', yAll, KPI_DAYS);
 
+  // ----- RAI รายปี (นับปีจากวันที่ RAI) แต่ละครั้งนับจากการผ่าตัดก่อนหน้า -----
+  var rAll = newGroup_(), rMap = {};
+  raiRows.forEach(function (e) {
+    var y = (e._t === null || e._t === undefined) ? 'ไม่ระบุปี' : String(new Date(e._t).getUTCFullYear() + 543);
+    if (!rMap[y]) rMap[y] = newGroup_();
+    addToGroup_(rMap[y], e, '_sxRai');
+    addToGroup_(rAll, e, '_sxRai');
+  });
+  var rKeys = Object.keys(rMap).sort(function (a, b) {
+    if (a === 'ไม่ระบุปี') return 1;
+    if (b === 'ไม่ระบุปี') return -1;
+    return (+b) - (+a);
+  });
+  var raiOut = {
+    limit: RAI_LIMIT,
+    withRaiPct: pct1_(withRai, pats.length),
+    total: raiGroupSummary_('ทุกปี', rAll),
+    years: rKeys.map(function (y) { return raiGroupSummary_(y, rMap[y]); })
+  };
+
   return {
     generated: now_(),
     patients: pats.length,
@@ -632,6 +704,7 @@ function computeStats_() {
     kpi: kpi,
     years: years,
     yearTotal: yearTotal,
+    rai: raiOut,
     badDate: badDate,
     _sxRows: sxRows, _raiRows: raiRows, _patRows: patRows, _byHn: byHn
   };
@@ -815,6 +888,30 @@ function writeYearSheet_(ss, s) {
     }
     if (y.unknownSurg || y.unknownPat) {
       line(['คำนวณไม่ได้ (ไม่มีวันผ่าตัดหรือ Discharge)', y.unknownSurg, '', y.unknownPat, '', '']);
+    }
+  });
+
+  // ----- RAI รายปี -----
+  var ra = [s.rai.total].concat(s.rai.years);
+  line(['']);
+  head(['RAI (กลืนแร่) รายปี — นับปีจากวันที่ RAI', '', '', '', '', '']);
+  line(['จำนวนวัน = วัน RAI ลบวันผ่าตัดครั้งล่าสุดก่อนหน้า · เกณฑ์ ไม่เกิน ' + s.rai.limit + ' วัน หลังผ่าตัด · ต่อคนใช้ค่าที่นานที่สุดของคนนั้น', '', '', '', '', '']);
+  line(['']);
+  head(['ปี พ.ศ.', 'ผู้ป่วยที่ได้ RAI (คน)', 'RAI (ครั้ง)', 'ภายใน ' + s.rai.limit + ' วัน ต่อครั้ง', 'ภายใน ' + s.rai.limit + ' วัน ต่อคน', 'เฉลี่ย / มัธยฐาน (วัน)']);
+  ra.forEach(function (y) {
+    line([y.year, y.patients, y.rai,
+      y.kpiRai.total ? y.kpiRai.pass + '/' + y.kpiRai.total + ' = ' + y.kpiRai.pct + '%' : '-',
+      y.kpiPat.total ? y.kpiPat.pass + '/' + y.kpiPat.total + ' = ' + y.kpiPat.pct + '%' : '-',
+      y.days.n ? y.days.mean + ' / ' + y.days.median : '-']);
+  });
+  ra.forEach(function (y) {
+    line(['']);
+    head(['RAI ปี ' + y.year + ' — ช่วงหลังผ่าตัด', 'ช่วงสัปดาห์', 'จำนวนครั้ง', '% ของครั้ง', 'จำนวนคน', '% ของคน']);
+    for (var i = 0; i < RAI_BUCKETS.length; i++) {
+      line([y.distRai[i].k, y.distRai[i].wk, y.distRai[i].v, y.distRai[i].pct, y.distPat[i].v, y.distPat[i].pct]);
+    }
+    if (y.unknownRai || y.unknownPat) {
+      line(['คำนวณไม่ได้ (ไม่มีวันผ่าตัดก่อนหน้า)', '', y.unknownRai, '', y.unknownPat, '']);
     }
   });
 
