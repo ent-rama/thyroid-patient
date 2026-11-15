@@ -334,6 +334,7 @@ function savePatient(isNew){
     DX:$('f_dx').value.trim(),BX:x.val,PATHO:$('f_patho').value.trim(),TYPE:'INFO'};
   if(!o.NAME){toast('กรุณากรอกชื่อ-สกุล');return;}
   if(!o.HN){toast('กรุณากรอก HN');return;}
+  o.isNew=!!isNew;
   call('apiSave',[o]).then(function(){toast('บันทึกแล้ว');openPatient(o.HN)}).catch(fail);
 }
 
