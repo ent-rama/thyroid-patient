@@ -410,6 +410,12 @@ function showStats(){
     $('app').innerHTML='<div class="card muted">'+esc((e&&e.message)||e)+'</div>';
   });
 }
+function kpiBox(label,k,unit){
+  if(!k||!k.total) return '<div><b>-</b><span>'+esc(label)+' · ยังไม่มีข้อมูล</span></div>';
+  return '<div><b style="color:var(--ok)">'+k.pct+'%</b><span>'+esc(label)+'</span>'+
+    '<div class="bar" style="margin-top:8px"><i style="width:'+k.pct+'%;background:var(--ok)"></i></div>'+
+    '<span style="display:block;margin-top:6px">ผ่าน '+k.pass+' จาก '+k.total+' '+esc(unit)+'</span></div>';
+}
 function bars(title,list,denom,unit,note){
   var h='<div class="card"><h3>'+esc(title)+'</h3>';
   if(!list||!list.length) return h+'<div class="muted" style="margin-top:6px">ยังไม่มีข้อมูล</div></div>';
@@ -440,13 +446,9 @@ function renderStats(s){
     '<div><b>'+s.withSx+' / '+s.withRai+'</b><span>เคยผ่าตัด / เคย RAI (คน)</span></div></div>'+
     (s.noEvent?'<div class="muted" style="margin-top:10px">ยังไม่มีข้อมูลการรักษา '+s.noEvent+' คน</div>':'')+'</div>';
 
-  var k=s.kpi, pct=(k.pct===''?0:k.pct);
-  h+='<div class="card"><h3>ตัวชี้วัด: ผ่าตัด → Discharge ไม่เกิน '+k.days+' วัน</h3>'+
-     (k.total
-       ? '<div class="kpi">'+pct+'%</div>'+
-         '<div class="bar" style="height:12px"><i style="width:'+pct+'%;background:var(--ok)"></i></div>'+
-         '<div class="muted" style="margin-top:10px">ผ่านเกณฑ์ '+k.pass+' ครั้ง จากการผ่าตัดที่คำนวณได้ '+k.total+' ครั้ง · ไม่ผ่าน '+(k.total-k.pass)+' ครั้ง</div>'
-       : '<div class="muted" style="margin-top:6px">ยังไม่มีข้อมูลพอคำนวณ</div>')+'</div>';
+  h+='<div class="card"><h3>ตัวชี้วัด: ผ่าตัด → Discharge ไม่เกิน '+s.kpi.days+' วัน</h3>'+
+     '<div class="big">'+kpiBox('ต่อการผ่าตัด 1 ครั้ง',s.kpi,'ครั้ง')+kpiBox('ต่อคนไข้',s.kpi.patient,'คน')+'</div>'+
+     '<div class="muted" style="margin-top:10px">ต่อคนไข้: ผ่านเมื่อ <b>ทุกครั้ง</b> ที่ผ่าตัดออก รพ. ภายใน '+s.kpi.days+' วัน</div></div>';
 
   h+=bars('เพศ',s.gender,s.patients,'คน');
   h+=bars('ช่วงอายุ',s.ageBand,s.patients,'คน',

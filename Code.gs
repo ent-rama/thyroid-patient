@@ -524,6 +524,19 @@ function computeStats_() {
     e._kpi = (e._sxDc === null) ? '' : (e._sxDc <= KPI_DAYS ? 'ผ่าน' : 'ไม่ผ่าน');
   });
 
+  // ต่อคน: ผ่านเมื่อทุกครั้งที่ผ่าตัด (ที่คำนวณได้) ออก รพ. ภายในเกณฑ์
+  var kpiPat = { days: KPI_DAYS, pass: 0, total: 0, pct: '' };
+  patRows.forEach(function (r) {
+    var n = 0, fail = 0;
+    (evByHn[r.p.HN] || []).forEach(function (e) {
+      if (e.TYPE === 'SX' && e._sxDc !== null) { n++; if (e._sxDc > KPI_DAYS) fail++; }
+    });
+    r.kpi = n ? (fail ? 'ไม่ผ่าน' : 'ผ่าน') : '';
+    if (n) { kpiPat.total++; if (!fail) kpiPat.pass++; }
+  });
+  kpiPat.pct = kpiPat.total ? Math.round(kpiPat.pass / kpiPat.total * 1000) / 10 : '';
+  kpi.patient = kpiPat;
+
   return {
     generated: now_(),
     patients: pats.length,
@@ -622,10 +635,16 @@ function writeSummarySheet_(ss, s) {
   R.push(['การให้ RAI ทั้งหมด', s.nRai, 'ครั้ง']);
 
   blank(); head('ตัวชี้วัด: ผ่าตัด → Discharge ไม่เกิน ' + s.kpi.days + ' วัน');
+  R.push(['ก. ต่อการผ่าตัด 1 ครั้ง', '', '']);
   R.push(['ผ่านเกณฑ์', s.kpi.pass, 'ครั้ง']);
   R.push(['ไม่ผ่านเกณฑ์', s.kpi.total - s.kpi.pass, 'ครั้ง']);
   R.push(['การผ่าตัดที่คำนวณได้', s.kpi.total, 'ครั้ง']);
   R.push(['ร้อยละผ่านเกณฑ์', s.kpi.pct, '%']);
+  R.push(['ข. ต่อคนไข้ (ผ่านเมื่อทุกครั้งที่ผ่าตัดผ่านเกณฑ์)', '', '']);
+  R.push(['ผ่านเกณฑ์', s.kpi.patient.pass, 'คน']);
+  R.push(['ไม่ผ่านเกณฑ์', s.kpi.patient.total - s.kpi.patient.pass, 'คน']);
+  R.push(['คนไข้ที่คำนวณได้', s.kpi.patient.total, 'คน']);
+  R.push(['ร้อยละผ่านเกณฑ์', s.kpi.patient.pct, '%']);
 
   tallyBlock('เพศ', s.gender, s.patients, 'คน');
   tallyBlock('ช่วงอายุ', s.ageBand, s.patients, 'คน');
@@ -665,12 +684,12 @@ function writeSummarySheet_(ss, s) {
 function writePatientSheet_(ss, s) {
   var H = ['HN', 'ชื่อ', 'เพศ', 'อายุ', 'Dx', 'Patho', 'Patho เพิ่มเติม',
     'จำนวนครั้งผ่าตัด', 'จำนวนครั้ง RAI', 'วันนอน รพ. รวม (วัน)',
-    'วันหลังผ่าตัดรวม (วัน)', 'ผ่าตัด→RAI ครั้งแรก (วัน)'];
+    'วันหลังผ่าตัดรวม (วัน)', 'ผ่าตัด→RAI ครั้งแรก (วัน)', 'ตัวชี้วัด ≤' + s.kpi.days + ' วัน (ต่อคน)'];
   var rows = s._patRows.map(function (r) {
     var p = r.p, a = ageOf_(p);
     return [p.HN, p.NAME || '', p.GENDER || '', a === null ? '' : a, p.DX || '',
       p.PATHO || '', p.PATHONOTE || '', r.nsx, r.nrai,
-      num_(r.losSum), num_(r.dcSum), num_(r.firstRai)];
+      num_(r.losSum), num_(r.dcSum), num_(r.firstRai), r.kpi || ''];
   });
   writeTable_(resetSheet_(ss, 'ตารางรายคน'), H, rows, [0]);
 }
