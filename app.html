@@ -81,6 +81,11 @@
 
   #toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#1b2a3a;color:#fff;padding:12px 20px;border-radius:999px;display:none;z-index:50;font-size:17px;max-width:90vw;text-align:center}
 
+  .tr{display:flex;gap:8px;align-items:baseline;border-top:1px solid var(--line);padding:9px 0;font-size:16px}
+  .tr.h{border-top:0;color:var(--muted);font-size:14px;padding-bottom:2px}
+  .tr .c1{flex:1;min-width:0;overflow-wrap:anywhere}
+  .tr .cn{width:74px;flex:none;text-align:right}
+  .tr.sum{font-weight:700}
   .srow{display:flex;align-items:baseline;gap:8px;font-size:17px}
   .srow .lbl{flex:1;min-width:0;overflow-wrap:anywhere}
   .srow .num{font-weight:700;color:var(--brand-dark);flex:none}
@@ -277,6 +282,7 @@ function renderPatient(){
     '<div><b>วันที่ Bx:</b> '+(esc(p.BX)||'-')+'</div>'+
     '<div><b>Patho:</b> '+(esc(p.PATHO)||'-')+'</div>'+
     (p.PATHONOTE?'<div><b>Patho เพิ่มเติม:</b> '+esc(p.PATHONOTE)+'</div>':'')+
+    (p.DEAD?'<div><span class="tag" style="background:#f3dcd9;color:#8e2b20">เสียชีวิต</span>'+(p.DEADNOTE?' '+esc(p.DEADNOTE):'')+'</div>':'')+
     (p.BIRTH?'<div><b>วันเกิด:</b> '+esc(p.BIRTH)+'</div>':'')+'</div>'+
     '<button class="btn secondary" onclick="editInfo()">แก้ไขข้อมูลผู้ป่วย</button></div>';
   h+='<div class="card"><h3>การรักษา</h3>';
@@ -294,6 +300,8 @@ function renderPatient(){
 /* ---------- ฟอร์มข้อมูลผู้ป่วย ---------- */
 var PATHO_OPTS=['PTC','FTC','MTC','ATC','Bethesda II','Bethesda III','อื่นๆ'];
 var GENDER_OPTS=['ชาย','หญิง'];
+var COMP_SX=['Hypocalcemia ชั่วคราว','Hypoparathyroidism ถาวร','เสียงแหบ / RLN injury','Hematoma','Chyle leak','Infection'];
+var COMP_RAI=['Sialadenitis (ต่อมน้ำลายอักเสบ)','คลื่นไส้ / อาเจียน'];
 function selectOpts(list,cur){return list.map(function(x){return '<option value="'+esc(x)+'"'+(cur===x?' selected':'')+'>'+esc(x)+'</option>'}).join('');}
 function patientFields(p){
   p=p||{};
@@ -310,10 +318,17 @@ function patientFields(p){
     '<label class="field-label" for="f_patho">Patho</label><select id="f_patho"><option value="">เลือก</option>'+selectOpts(PATHO_OPTS,pathoSel)+'</select>'+
     '<input id="f_patho_other" type="text" placeholder="พิมพ์ชนิด Patho อื่น" value="'+esc(pathoIsOther?p.PATHO:'')+'" class="'+(pathoSel==='อื่นๆ'?'':'hidden')+'" style="margin-top:8px">'+
     '<label class="field-label" for="f_patho_note">รายละเอียด Patho เพิ่มเติม</label>'+
-    '<textarea id="f_patho_note" placeholder="เช่น Bx: Bethesda III → ผลหลังผ่าตัด: PTC, ต่อมน้ำเหลือง 2/15">'+esc(p.PATHONOTE)+'</textarea>';
+    '<textarea id="f_patho_note" placeholder="เช่น Bx: Bethesda III → ผลหลังผ่าตัด: PTC, ต่อมน้ำเหลือง 2/15">'+esc(p.PATHONOTE)+'</textarea>'+
+    '<label class="check"><input type="checkbox" id="f_dead"'+(p.DEAD?' checked':'')+'><span>เสียชีวิต</span></label>'+
+    '<div id="f_dead_wrap" class="'+(p.DEAD?'':'hidden')+'"><label class="field-label" for="f_dead_note">หมายเหตุ (เช่น วันที่เสียชีวิต ถ้าทราบ)</label>'+
+    '<input id="f_dead_note" type="text" value="'+esc(p.DEADNOTE)+'" placeholder="ไม่ทราบวันที่ ก็ปล่อยว่างได้"></div>';
 }
 function wireAge(){
   $('f_birth').addEventListener('input',function(){var a=calcAge(parseDate(this.value)); if(a!=='') $('f_age').value=a;});
+  $('f_dead').addEventListener('change',function(){
+    $('f_dead_wrap').classList.toggle('hidden',!this.checked);
+    if(!this.checked) $('f_dead_note').value='';
+  });
   $('f_patho').addEventListener('change',function(){
     var o=$('f_patho_other'); var other=this.value==='อื่นๆ';
     o.classList.toggle('hidden',!other); if(!other) o.value='';
@@ -335,7 +350,7 @@ function savePatient(isNew){
   var pSel=$('f_patho').value;
   var pathoVal = pSel==='อื่นๆ' ? $('f_patho_other').value.trim() : pSel;
   var o={NAME:$('f_name').value.trim(),HN:$('f_hn').value.trim(),GENDER:$('f_gender').value,BIRTH:b.val,AGE:$('f_age').value,TEL:$('f_tel').value.trim(),
-    DX:$('f_dx').value.trim(),BX:x.val,PATHO:pathoVal,PATHONOTE:$('f_patho_note').value.trim(),TYPE:'INFO'};
+    DX:$('f_dx').value.trim(),BX:x.val,PATHO:pathoVal,PATHONOTE:$('f_patho_note').value.trim(),DEAD:$('f_dead').checked,DEADNOTE:$('f_dead_note').value.trim(),TYPE:'INFO'};
   if(!o.NAME){toast('กรุณากรอกชื่อ-สกุล');return;}
   if(!o.GENDER){toast('กรุณาเลือกเพศ');return;}
   if(!o.HN){toast('กรุณากรอก HN');return;}
@@ -370,7 +385,12 @@ function eventForm(){
       '<label class="field-label" for="e_dose">ความแรงรังสี (mCi) <span class="req">*</span></label><select id="e_dose"><option value="">เลือก</option>'+
       DOSES.map(function(d){return '<option value="'+d+'"'+(e.RAIDOSE===d?' selected':'')+'>'+d+' mCi</option>'}).join('')+'</select>';
   }
-  h+='<label class="field-label" for="e_comp">Complication</label><textarea id="e_comp">'+esc(e.COMP)+'</textarea>'+
+  var compOpts=isSx?COMP_SX:COMP_RAI;
+  var chosenC=(e.COMP||'').split(',').map(function(x){return x.trim()}).filter(Boolean);
+  var otherC=chosenC.filter(function(c){return compOpts.indexOf(c)<0}).join(', ');
+  h+='<label class="field-label">Complication (ติ๊กได้หลายข้อ ถ้าไม่มีให้เว้นว่าง)</label>'+
+    compOpts.map(function(x){return '<label class="check"><input type="checkbox" class="comp" value="'+esc(x)+'"'+(chosenC.indexOf(x)>=0?' checked':'')+'><span>'+esc(x)+'</span></label>'}).join('')+
+    '<label class="field-label" for="e_comp_other">อื่นๆ (พิมพ์เพิ่มได้)</label><input id="e_comp_other" type="text" value="'+esc(otherC)+'">'+
     '<label class="field-label" for="e_note">หมายเหตุ</label><textarea id="e_note">'+esc(e.NOTE)+'</textarea>'+
     '<button class="btn ok" onclick="saveEvent()">บันทึก</button>'+
     (e.ID?'<button class="btn danger" onclick="delEvent()">ลบรายการนี้</button>':'')+'</div>';
@@ -383,7 +403,8 @@ function saveEvent(){
   var d1=readDate('e_date'), d2=e.TYPE==='SX'?readDate('e_dc'):{ok:true,val:''};
   if(!d0.ok||!d1.ok||!d2.ok){toast('รูปแบบวันที่ไม่ถูกต้อง (วว/ดด/ปปปป)');return;}
   var o={ID:e.ID||'',TYPE:e.TYPE,HN:p.HN,NAME:p.NAME,BIRTH:p.BIRTH,AGE:p.AGE,TEL:p.TEL,DX:p.DX,BX:p.BX,PATHO:p.PATHO,
-    COMP:$('e_comp').value.trim(),NOTE:$('e_note').value.trim()};
+    COMP:(function(){var c=[].slice.call(document.querySelectorAll('.comp:checked')).map(function(x){return x.value});
+      var o2=$('e_comp_other').value.trim(); if(o2) c.push(o2); return c.join(', ');})(),NOTE:$('e_note').value.trim()};
   if(e.TYPE==='SX'){
     var procs=[].slice.call(document.querySelectorAll('.proc:checked')).map(function(c){return c.value});
     var other=$('e_other').value.trim(); if(other) procs.push(other);
@@ -410,12 +431,25 @@ function showStats(){
     $('app').innerHTML='<div class="card muted">'+esc((e&&e.message)||e)+'</div>';
   });
 }
+function chartPair(y){
+  var h='<div style="margin-top:16px;font-weight:700;color:var(--brand-dark)">กราฟเปรียบเทียบ</div>'+
+    '<div class="muted" style="margin-top:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:var(--brand);vertical-align:-1px"></span> สัดส่วนจากคนไข้ทั้งหมด ('+y.patientsKnown+' คน) &nbsp; '+
+    '<span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:var(--rai);vertical-align:-1px"></span> สัดส่วนจากการผ่าตัดทั้งหมด ('+(y.surgeries-y.unknownSurg)+' ครั้ง)</div>';
+  for(var i=0;i<y.distSurg.length;i++){
+    var a=y.distSurg[i], b=y.distPat[i];
+    var pp=(b.pct===''?0:b.pct), sp=(a.pct===''?0:a.pct);
+    h+='<div style="margin-top:12px"><div class="srow"><span class="lbl">'+esc(a.k)+'</span></div>'+
+       '<div class="srow" style="margin-top:4px"><div class="bar" style="flex:1;margin:0"><i style="width:'+pp+'%;background:var(--brand)"></i></div><span class="num" style="width:56px;text-align:right;font-size:15px">'+pp+'%</span></div>'+
+       '<div class="srow" style="margin-top:3px"><div class="bar" style="flex:1;margin:0"><i style="width:'+sp+'%;background:var(--rai)"></i></div><span class="num" style="width:56px;text-align:right;font-size:15px">'+sp+'%</span></div></div>';
+  }
+  return h;
+}
 function yearCard(y,k){
   var h='<div class="card"><h3>'+(y.year==='ทุกปี'?'ทุกปีรวมกัน':(y.year==='ไม่ระบุปี'?'ไม่ระบุปี':'พ.ศ. '+esc(y.year)))+'</h3>'+
     '<div class="big"><div><b>'+y.patients+'</b><span>ผู้ป่วยที่ผ่าตัด (คน)</span></div>'+
-    '<div><b>'+y.surgeries+'</b><span>ผ่าตัด (ครั้ง)</span></div>'+
-    kpiBox('ผ่านเกณฑ์ ต่อครั้ง',y.kpiSurg,'ครั้ง')+kpiBox('ผ่านเกณฑ์ ต่อคน',y.kpiPat,'คน')+'</div>'+
-    '<div style="margin-top:14px;font-weight:700;color:var(--brand-dark)">นอน รพ. หลังผ่าตัดกี่วัน</div>'+
+    '<div><b>'+y.surgeries+'</b><span>ผ่าตัด (ครั้ง)</span></div></div>'+
+    (y.multi?'<div class="muted" style="margin-top:8px">ในนี้ผ่าตัดมากกว่า 1 ครั้ง '+y.multi+' คน</div>':'')+
+    '<div style="margin-top:14px;font-weight:700;color:var(--brand-dark)">นอน รพ. หลังผ่าตัดกี่วัน (ทุกครั้งที่ผ่าตัด)</div>'+
     '<div class="srow" style="margin-top:8px;color:var(--muted);font-size:14px"><span class="lbl">ช่วงวัน</span><span style="width:96px;text-align:right">ครั้ง</span><span style="width:96px;text-align:right">คน</span></div>';
   for(var i=0;i<y.distSurg.length;i++){
     var a=y.distSurg[i], b=y.distPat[i];
@@ -426,31 +460,70 @@ function yearCard(y,k){
        '<span style="width:96px;text-align:right"><b>'+b.v+'</b> <span class="muted">('+(b.pct===''?0:b.pct)+'%)</span></span></div>';
   }
   if(y.unknownSurg||y.unknownPat) h+='<div class="muted" style="margin-top:10px">คำนวณไม่ได้ (ไม่มีวันผ่าตัดหรือ Discharge): '+y.unknownSurg+' ครั้ง · '+y.unknownPat+' คน</div>';
+  h+=chartPair(y);
+  h+='<div style="margin-top:16px;font-weight:700;color:var(--brand-dark)">ตัวชี้วัด ไม่เกิน '+3+' วัน</div>'+
+     '<div class="big">'+kpiBox('ต่อการผ่าตัด',y.kpiSurg,'ครั้ง')+kpiBox('ต่อคนไข้ (ผ่านทุกครั้ง)',y.kpiPat,'คน')+'</div>';
   return h+'</div>';
 }
-function raiCard(y,lim){
-  var title = y.year==='ทุกปี' ? 'ทุกปีรวมกัน' : (y.year==='ไม่ระบุปี' ? 'ไม่ระบุปี' : 'พ.ศ. '+esc(y.year));
-  var h='<div class="card"><h3>'+title+'</h3>'+
-    '<div class="big"><div><b>'+y.patients+'</b><span>ผู้ป่วยที่ได้ RAI (คน)</span></div>'+
-    '<div><b>'+y.rai+'</b><span>RAI (ครั้ง)</span></div>'+
-    kpiBox('ภายใน '+lim+' วัน ต่อครั้ง',y.kpiRai,'ครั้ง')+kpiBox('ภายใน '+lim+' วัน ต่อคน',y.kpiPat,'คน')+'</div>';
-  if(y.days&&y.days.n){
-    h+='<div class="muted" style="margin-top:12px">หลังผ่าตัดกี่วันถึงได้ RAI (คำนวณได้ '+y.days.n+' ครั้ง)</div>'+
-       '<div class="big"><div><b>'+y.days.mean+'</b><span>เฉลี่ย (วัน)</span></div><div><b>'+y.weeks.mean+'</b><span>เฉลี่ย (สัปดาห์)</span></div>'+
-       '<div><b>'+y.days.median+'</b><span>มัธยฐาน (วัน)</span></div><div><b>'+y.weeks.median+'</b><span>มัธยฐาน (สัปดาห์)</span></div>'+
-       '<div><b>'+y.days.min+'–'+y.days.max+'</b><span>ต่ำสุด–สูงสุด (วัน)</span></div><div><b>'+y.weeks.min+'–'+y.weeks.max+'</b><span>ต่ำสุด–สูงสุด (สัปดาห์)</span></div></div>';
-  }
-  h+='<div style="margin-top:14px;font-weight:700;color:var(--brand-dark)">ได้ RAI หลังผ่าตัดกี่วัน</div>'+
-    '<div class="srow" style="margin-top:8px;color:var(--muted);font-size:14px"><span class="lbl">ช่วงเวลา</span><span style="width:96px;text-align:right">ครั้ง</span><span style="width:96px;text-align:right">คน</span></div>';
-  for(var i=0;i<y.distRai.length;i++){
-    var a=y.distRai[i], b=y.distPat[i], ok=(i<y.distRai.length-1);
-    h+='<div class="srow" style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px">'+
-       '<span class="lbl" style="'+(ok?'color:var(--ok);font-weight:600':'')+'">'+esc(a.k)+'<span class="muted" style="display:block;font-weight:400">'+esc(a.wk)+'</span></span>'+
-       '<span style="width:96px;text-align:right"><b>'+a.v+'</b> <span class="muted">('+(a.pct===''?0:a.pct)+'%)</span></span>'+
-       '<span style="width:96px;text-align:right"><b>'+b.v+'</b> <span class="muted">('+(b.pct===''?0:b.pct)+'%)</span></span></div>';
-  }
-  if(y.unknownRai||y.unknownPat) h+='<div class="muted" style="margin-top:10px">คำนวณไม่ได้ (ไม่มีวันผ่าตัดก่อนหน้า): '+y.unknownRai+' ครั้ง · '+y.unknownPat+' คน</div>';
+function esc2(x){return esc(x==null?'':String(x));}
+function pc(v){return (v===''||v==null)?'-':v+'%';}
+function trow(cells,cls){
+  var h='<div class="tr'+(cls?' '+cls:'')+'"><span class="c1">'+cells[0]+'</span>';
+  for(var i=1;i<cells.length;i++) h+='<span class="cn">'+cells[i]+'</span>';
   return h+'</div>';
+}
+function tcCard(title,inner){return '<div class="card"><h3>'+title+'</h3>'+inner+'</div>';}
+function compCard(title,c,unit){
+  var h='<div class="muted" style="margin-top:6px">คำนวณจาก '+c.denom+' '+unit+'</div>'+trow(['รายการ','คน','%'],'h');
+  c.items.forEach(function(x){h+=trow([esc(x.k),x.patients,pc(x.pct)]);});
+  h+=trow(['ไม่มี complication',c.none,pc(c.nonePct)],'sum');
+  if(!c.items.length) h+='<div class="muted" style="margin-top:8px">ยังไม่มีการบันทึก complication</div>';
+  return tcCard(title,h);
+}
+function renderTC(tc){
+  var h='<div class="sect">สรุปผู้ป่วยมะเร็งไทรอยด์</div>';
+  // 1
+  var r=trow(['ปี พ.ศ.','ทั้งหมด','ชาย','หญิง'],'h');
+  tc.yearGender.forEach(function(y){r+=trow([esc(y.year),y.total,y.male,y.female]);});
+  var t=tc.yearGenderTotal; r+=trow(['รวม',t.total,t.male+' <span class="muted">('+pc(t.total?Math.round(t.male/t.total*1000)/10:'')+')</span>',t.female+' <span class="muted">('+pc(t.total?Math.round(t.female/t.total*1000)/10:'')+')</span>'],'sum');
+  if(t.other) r+='<div class="muted" style="margin-top:8px">ไม่ได้ระบุเพศ '+t.other+' คน</div>';
+  r+='<div class="muted" style="margin-top:8px">นับปีจากวันที่ Bx (ถ้าไม่มีใช้ปีของการรักษาครั้งแรก)</div>';
+  h+=tcCard('1. ผู้ป่วยมะเร็งไทรอยด์ ต่อปี แยกเพศ',r);
+  // 2
+  r=trow(['Patho','คน','%'],'h');
+  tc.patho.forEach(function(x){r+=trow([esc(x.k),x.v,pc(x.pct)]);});
+  h+=tcCard('2. ชนิด Patho',r);
+  // 3
+  var sg=tc.surgery;
+  r='<div class="big"><div><b>'+sg.patients+'</b><span>ผ่าตัด (คน)</span></div><div><b>'+sg.times+'</b><span>ผ่าตัด (ครั้ง)</span></div></div>'+
+    '<div style="margin-top:12px">'+trow(['จำนวนครั้งที่ผ่าตัด','คน','%'],'h');
+  sg.byCount.forEach(function(x){r+=trow([esc(x.k),x.v,pc(x.pct)]);});
+  r+='</div><div style="margin-top:14px;font-weight:700;color:var(--brand-dark)">คนที่ผ่าตัดหลายครั้ง ทำอะไรบ้าง</div>';
+  if(!sg.patterns.length) r+='<div class="muted" style="margin-top:6px">ยังไม่มี</div>';
+  else { r+=trow(['รูปแบบ','คน'],'h'); sg.patterns.forEach(function(x){r+=trow([x.n+' ครั้ง: '+esc(x.pattern),x.patients]);}); }
+  h+=tcCard('3. การผ่าตัด กี่คน กี่ครั้ง',r);
+  // 4
+  var L=tc.los;
+  r=(L.all.n?'<div class="big"><div><b>'+L.all.mean+'</b><span>เฉลี่ย (วัน) ทุกครั้ง</span></div><div><b>'+L.all.median+'</b><span>มัธยฐาน (วัน)</span></div><div><b>'+L.all.n+'</b><span>ครั้งที่คำนวณได้</span></div></div>':'<div class="muted" style="margin-top:6px">ยังไม่มีข้อมูลพอคำนวณ</div>')+
+    '<div style="margin-top:14px;font-weight:700;color:var(--brand-dark)">แยกตามชนิดการผ่าตัด</div>'+trow(['ชนิด','ครั้ง / คน','เฉลี่ย (วัน)'],'h');
+  L.byProc.forEach(function(x){r+=trow([esc(x.k),x.surgeries+' / '+x.patients,x.days.n?x.days.mean:'-']);});
+  r+='<div class="muted" style="margin-top:8px">ผ่าตัดครั้งเดียวทำหลายอย่าง จะนับอยู่ในทุกชนิดที่ทำ</div>'+
+    '<div style="margin-top:14px;font-weight:700;color:var(--brand-dark)">สรุป: Total thyroidectomy เทียบกับที่มีต่อมน้ำเหลือง</div>'+trow(['กลุ่ม','ครั้ง / คน','เฉลี่ย (วัน)'],'h');
+  [L.totalOnly,L.totalNeck].forEach(function(x){r+=trow([esc(x.k),x.surgeries+' / '+x.patients,x.days.n?x.days.mean:'-'],'sum');});
+  h+=tcCard('4. นอน รพ. หลังผ่าตัด (นับจากวันที่ผ่าตัด)',r);
+  // 5
+  h+=compCard('5. Complication หลังผ่าตัด',tc.compSx,'คนที่ผ่าตัด');
+  // 6
+  h+=tcCard('6. ผู้ป่วยที่ได้ RAI','<div class="big"><div><b>'+tc.rai.patients+'</b><span>ได้ RAI (คน)</span></div><div><b>'+pc(tc.rai.pct)+'</b><span>ของผู้ป่วยมะเร็งไทรอยด์ทั้งหมด ('+tc.patients+' คน)</span></div></div>');
+  // 7
+  h+=compCard('7. Complication หลัง RAI',tc.rai.comp,'คนที่ได้ RAI');
+  // 8
+  var d=tc.dead;
+  r='<div class="big"><div><b>'+d.total+'</b><span>เสียชีวิต (คน)</span></div><div><b>'+pc(d.pct)+'</b><span>ของผู้ป่วยมะเร็งไทรอยด์ทั้งหมด ('+tc.patients+' คน)</span></div></div>';
+  if(d.byPatho.length){ r+='<div style="margin-top:12px">'+trow(['Patho','เสียชีวิต','% ของ Patho'],'h'); d.byPatho.forEach(function(x){r+=trow([esc(x.k),x.v,pc(x.pctOfPatho)]);}); r+='</div>'; }
+  else r+='<div class="muted" style="margin-top:8px">ยังไม่มีผู้ป่วยที่ติ๊กว่าเสียชีวิต</div>';
+  h+=tcCard('8. ผู้ป่วยเสียชีวิต (Dead)',r);
+  return h;
 }
 function kpiBox(label,k,unit){
   if(!k||!k.total) return '<div><b>-</b><span>'+esc(label)+' · ยังไม่มีข้อมูล</span></div>';
@@ -482,18 +555,21 @@ function days(title,st,unit,note){
 }
 function renderStats(s){
   var h='<div class="card"><h3>ภาพรวม</h3><div class="big">'+
-    '<div><b>'+s.patients+'</b><span>ผู้ป่วยทั้งหมด (คน)</span></div>'+
+    '<div><b>'+s.patients+'</b><span>ผู้ป่วยมะเร็งไทรอยด์ทั้งหมด (คน)</span></div>'+
     '<div><b>'+s.nSx+'</b><span>ผ่าตัด (ครั้ง)</span></div>'+
     '<div><b>'+s.nRai+'</b><span>RAI (ครั้ง)</span></div>'+
     '<div><b>'+s.withSx+' / '+s.withRai+'</b><span>เคยผ่าตัด / เคย RAI (คน) · RAI '+(s.patients?Math.round(s.withRai/s.patients*100):0)+'% ของผู้ป่วย</span></div></div>'+
     (s.noEvent?'<div class="muted" style="margin-top:10px">ยังไม่มีข้อมูลการรักษา '+s.noEvent+' คน</div>':'')+'</div>';
 
+  h+=renderTC(s.tc);
+
+  h+='<div class="sect">ตัวชี้วัด</div>';
   h+='<div class="card"><h3>ตัวชี้วัด: ผ่าตัด → Discharge ไม่เกิน '+s.kpi.days+' วัน</h3>'+
      '<div class="big">'+kpiBox('ต่อการผ่าตัด 1 ครั้ง',s.kpi,'ครั้ง')+kpiBox('ต่อคนไข้',s.kpi.patient,'คน')+'</div>'+
      '<div class="muted" style="margin-top:10px">ต่อคนไข้: ผ่านเมื่อ <b>ทุกครั้ง</b> ที่ผ่าตัดออก รพ. ภายใน '+s.kpi.days+' วัน</div></div>';
 
   h+='<div class="sect">สรุปรายปี (นับจากปีที่ผ่าตัด)</div>';
-  h+='<div class="card muted" style="margin-top:10px">ต่อคน ใช้ค่าที่นานที่สุดของคนนั้นในปีนั้น เช่น ผ่าตัดครั้งแรกนอน 3 วัน ครั้งที่สองนอน 6 วัน จะนับอยู่ในช่วง 6 วัน และไม่ผ่านเกณฑ์</div>';
+  h+='<div class="card muted" style="margin-top:10px">ตารางและกราฟนับทุกครั้งที่ผ่าตัด คนที่ผ่าตัดหลายครั้งจะนับอยู่ในทุกช่วงที่เขามีการผ่าตัด เช่น ครั้งแรกนอน 3 วัน ครั้งที่สองนอน 6 วัน จะอยู่ทั้งช่วง 3 วันและ 6 วัน ดังนั้นเปอร์เซ็นต์ของคนอาจรวมกันเกิน 100% ส่วนตัวชี้วัดต่อคนไข้ถือว่าผ่านเมื่อผ่านทุกครั้ง</div>';
   h+=yearCard(s.yearTotal);
   (s.years||[]).forEach(function(y){h+=yearCard(y);});
 
@@ -504,11 +580,8 @@ function renderStats(s){
     (s.rai.years||[]).forEach(function(y){h+=raiCard(y,s.rai.limit);});
   }
 
-  h+=bars('เพศ',s.gender,s.patients,'คน');
   h+=bars('ช่วงอายุ',s.ageBand,s.patients,'คน',
       s.ageStat.n?('อายุเฉลี่ย '+s.ageStat.mean+' ปี · มัธยฐาน '+s.ageStat.median+' ปี · ช่วง '+s.ageStat.min+'–'+s.ageStat.max+' ปี'):'');
-  h+=bars('ผลพยาธิวิทยา (Patho)',s.patho,s.patients,'คน');
-  h+=bars('ชนิดการผ่าตัด',s.proc,s.nSx,'ครั้ง','นับทุกครั้งที่ผ่าตัด ถ้าครั้งเดียวทำหลายอย่างจะนับทุกอย่าง');
   h+=bars('ความแรง RAI',s.dose,s.nRai,'ครั้ง');
 
   h+='<div class="sect">ก. ต่อคน — คนไข้ 1 คน นับ 1 ค่า</div>';
@@ -523,7 +596,7 @@ function renderStats(s){
   h+=days('ผ่าตัด → RAI',s.byEvent.sxRai,'วัน','นับทุกครั้งที่ให้ RAI เทียบกับการผ่าตัดครั้งล่าสุดก่อนหน้า');
 
   h+='<div class="card"><h3>ส่งออกเป็นตาราง</h3>'+
-     '<div class="muted" style="margin-top:6px">สร้าง 4 แท็บในไฟล์ Google Sheets — Dashboard, ตารางรายคน, ตารางผ่าตัด, ตาราง RAI — คำนวณจำนวนวันไว้ให้แล้ว นำไปทำสถิติต่อได้เลย</div>'+
+     '<div class="muted" style="margin-top:6px">สร้าง 5 แท็บในไฟล์ Google Sheets — Dashboard, สรุปรายปี, ตารางรายคน, ตารางผ่าตัด, ตาราง RAI — คำนวณจำนวนวันไว้ให้แล้ว นำไปทำสถิติต่อได้เลย</div>'+
      '<button class="btn secondary" id="expBtn" onclick="exportDash()">ส่งออกลง Google Sheets</button></div>';
 
   if(s.badDate) h+='<div class="card muted">ข้ามไป '+s.badDate+' รายการ เพราะวันที่เรียงลำดับไม่ถูกต้อง เช่น วัน Discharge มาก่อนวันผ่าตัด</div>';

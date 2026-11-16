@@ -13,8 +13,8 @@ var OLD_SHEET = 'Records';
 var USERS_SHEET = 'Users';
 var OWNER_EMAIL = 'nayika.to@gmail.com';
 
-var PAT_HEADERS = ['HN', 'ชื่อ', 'เพศ', 'วันเกิด', 'อายุ', 'Tel', 'Dx', 'วันที่ Bx', 'Patho', 'Patho เพิ่มเติม', 'ผู้บันทึก', 'เวลาบันทึก'];
-var PAT = { HN: 0, NAME: 1, GENDER: 2, BIRTH: 3, AGE: 4, TEL: 5, DX: 6, BX: 7, PATHO: 8, PATHONOTE: 9, BY: 10, AT: 11 };
+var PAT_HEADERS = ['HN', 'ชื่อ', 'เพศ', 'วันเกิด', 'อายุ', 'Tel', 'Dx', 'วันที่ Bx', 'Patho', 'Patho เพิ่มเติม', 'เสียชีวิต', 'หมายเหตุเสียชีวิต', 'ผู้บันทึก', 'เวลาบันทึก'];
+var PAT = { HN: 0, NAME: 1, GENDER: 2, BIRTH: 3, AGE: 4, TEL: 5, DX: 6, BX: 7, PATHO: 8, PATHONOTE: 9, DEAD: 10, DEADNOTE: 11, BY: 12, AT: 13 };
 
 var EVT_HEADERS = ['ID', 'HN', 'ประเภท', 'ผ่าตัดครั้งที่', 'ผ่าตัดอะไร', 'วันที่รับไว้ รพ.', 'วันที่ผ่าตัด', 'วันที่ Discharge',
   'วันที่ RAI', 'ความแรง RAI (mCi)', 'Complication', 'หมายเหตุ', 'ผู้บันทึก', 'เวลาบันทึก'];
@@ -125,7 +125,8 @@ function patientObj_(r) {
   return {
     HN: str_(r[PAT.HN]).trim(), NAME: str_(r[PAT.NAME]), GENDER: str_(r[PAT.GENDER]), BIRTH: str_(r[PAT.BIRTH]), AGE: str_(r[PAT.AGE]),
     TEL: str_(r[PAT.TEL]), DX: str_(r[PAT.DX]), BX: str_(r[PAT.BX]), PATHO: str_(r[PAT.PATHO]),
-    PATHONOTE: str_(r[PAT.PATHONOTE])
+    PATHONOTE: str_(r[PAT.PATHONOTE]),
+    DEAD: str_(r[PAT.DEAD]), DEADNOTE: str_(r[PAT.DEADNOTE])
   };
 }
 
@@ -230,7 +231,7 @@ function savePatient_(ob, email) {
   if (!ob.isNew && !found) throw new Error('ไม่พบ HN ' + hn);
 
   var row = [hn, ob.NAME || '', ob.GENDER || '', ob.BIRTH || '', ob.AGE || '', ob.TEL || '', ob.DX || '',
-    ob.BX || '', ob.PATHO || '', ob.PATHONOTE || '', email, now_()];
+    ob.BX || '', ob.PATHO || '', ob.PATHONOTE || '', ob.DEAD ? 'เสียชีวิต' : '', ob.DEADNOTE || '', email, now_()];
   var sh = patientsSheet_();
   if (found) {
     sh.getRange(found.row, 1, 1, row.length).setValues([row]);
@@ -344,7 +345,7 @@ function migrateRecordsToSplit_() {
 
   var prow = order.map(function (hn) {
     var p = patients[hn];
-    return [hn, p.NAME || '', '', p.BIRTH || '', p.AGE || '', p.TEL || '', p.DX || '', p.BX || '', p.PATHO || '', '', 'migration', now_()];
+    return [hn, p.NAME || '', '', p.BIRTH || '', p.AGE || '', p.TEL || '', p.DX || '', p.BX || '', p.PATHO || '', '', '', '', 'migration', now_()];
   });
   if (prow.length) pat.getRange(2, 1, prow.length, PAT_HEADERS.length).setValues(prow);
   if (events.length) evt.getRange(2, 1, events.length, EVT_HEADERS.length).setValues(events);
@@ -438,6 +439,21 @@ function distOf_(vals) {
 }
 
 // สรุปของกลุ่มหนึ่ง (ปีเดียว หรือทุกปี): surg = วันหลังผ่าตัดรายครั้ง, pat = {HN: วันที่นานที่สุด}
+// จำนวนคนในแต่ละช่วงวัน: 1 คนที่ผ่าตัดหลายครั้งนับอยู่ในทุกช่วงที่เขามีการผ่าตัด
+function distPatientsAny_(g) {
+  var c = {};
+  DAY_BUCKETS.forEach(function (b) { c[b] = 0; });
+  var hns = Object.keys(g.days);
+  hns.forEach(function (hn) {
+    var seen = {};
+    g.days[hn].forEach(function (d) {
+      var b = bucketLabel_(d);
+      if (!seen[b]) { seen[b] = 1; c[b]++; }
+    });
+  });
+  return DAY_BUCKETS.map(function (b) { return { k: b, v: c[b], pct: pct1_(c[b], hns.length) }; });
+}
+
 function groupSummary_(label, g, limit) {
   var patVals = Object.keys(g.pat).map(function (k) { return g.pat[k]; });
   var sp = 0, pp = 0;
@@ -450,21 +466,25 @@ function groupSummary_(label, g, limit) {
     kpiSurg: { pass: sp, total: g.surg.length, pct: pct1_(sp, g.surg.length) },
     kpiPat: { pass: pp, total: patVals.length, pct: pct1_(pp, patVals.length) },
     distSurg: distOf_(g.surg),
-    distPat: distOf_(patVals),
+    distPat: distPatientsAny_(g),
+    patientsKnown: Object.keys(g.days).length,
+    multi: Object.keys(g.cnt).filter(function (k) { return g.cnt[k] > 1; }).length,
     unknownSurg: g.total - g.surg.length,
     unknownPat: Object.keys(g.patSet).length - patVals.length
   };
 }
 
-function newGroup_() { return { surg: [], pat: {}, patSet: {}, total: 0 }; }
+function newGroup_() { return { surg: [], pat: {}, patSet: {}, total: 0, days: {}, cnt: {} }; }
 
 function addToGroup_(g, e, field) {
   field = field || '_sxDc';
   var d = e[field];
   g.total++;
   g.patSet[e.HN] = 1;
+  g.cnt[e.HN] = (g.cnt[e.HN] || 0) + 1;
   if (d !== null && d !== undefined) {
     g.surg.push(d);
+    (g.days[e.HN] = g.days[e.HN] || []).push(d);
     if (g.pat[e.HN] === undefined || d > g.pat[e.HN]) g.pat[e.HN] = d;
   }
 }
@@ -516,6 +536,174 @@ function raiGroupSummary_(label, g) {
     distPat: raiDistOf_(patVals),
     unknownRai: g.total - g.surg.length,
     unknownPat: Object.keys(g.patSet).length - patVals.length
+  };
+}
+
+var PATHO_KEYS = ['PTC', 'FTC', 'ATC', 'MTC', 'Bethesda II', 'Bethesda III'];
+
+function normPatho_(v) {
+  v = str_(v).trim();
+  if (!v) return 'ไม่ระบุ';
+  return PATHO_KEYS.indexOf(v) >= 0 ? v : 'อื่นๆ';
+}
+
+function splitItems_(v) {
+  return str_(v).split(',').map(function (x) { return x.trim(); }).filter(function (x) { return x; });
+}
+
+function hasNeck_(items) {
+  return items.some(function (x) { return /neck dissection|MRND/i.test(x); });
+}
+
+function hasTotal_(items) {
+  return items.some(function (x) { return /total thyroidectomy/i.test(x); });
+}
+
+function dayStat_(arr) {
+  var st = stat_(arr);
+  return { n: st.n, mean: st.mean, median: st.median, min: st.min, max: st.max };
+}
+
+// สรุปชุด complication: events ที่มี COMP เป็นรายการคั่นด้วย ,  denom = จำนวนคนทั้งหมดของกลุ่มนั้น
+function compSummary_(events, denom) {
+  var byItem = {}, patAny = {};
+  events.forEach(function (e) {
+    var seen = {};
+    splitItems_(e.COMP).forEach(function (it) {
+      if (!byItem[it]) byItem[it] = { k: it, pats: {}, surgeries: 0 };
+      byItem[it].pats[e.HN] = 1;
+      if (!seen[it]) { seen[it] = 1; byItem[it].surgeries++; }
+      patAny[e.HN] = 1;
+    });
+  });
+  var items = Object.keys(byItem).map(function (k) {
+    var n = Object.keys(byItem[k].pats).length;
+    return { k: k, patients: n, times: byItem[k].surgeries, pct: pct1_(n, denom) };
+  }).sort(function (a, b) { return b.patients - a.patients || (a.k < b.k ? -1 : 1); });
+  var withAny = Object.keys(patAny).length;
+  return {
+    denom: denom, items: items,
+    withAny: withAny, withAnyPct: pct1_(withAny, denom),
+    none: denom - withAny, nonePct: pct1_(denom - withAny, denom)
+  };
+}
+
+// สรุปมะเร็งไทรอยด์: เพศต่อปี, Patho, การผ่าตัด, วันนอนแยกชนิด, complication, RAI, เสียชีวิต
+function buildCancerSummary_(pats, evByHn) {
+  var N = pats.length;
+  // --- 1) ต่อปี แยกเพศ (ปี Bx ถ้าไม่มีใช้ปีของการรักษาครั้งแรก) ---
+  var ym = {};
+  pats.forEach(function (p) {
+    var t = parseThaiDate_(p.BX);
+    if (t === null) {
+      (evByHn[p.HN] || []).forEach(function (e) {
+        if (e._t !== null && e._t !== undefined && (t === null || e._t < t)) t = e._t;
+      });
+    }
+    var y = (t === null) ? 'ไม่ระบุปี' : String(new Date(t).getUTCFullYear() + 543);
+    if (!ym[y]) ym[y] = { year: y, total: 0, male: 0, female: 0, other: 0 };
+    ym[y].total++;
+    var g = str_(p.GENDER).trim();
+    if (g === 'ชาย') ym[y].male++; else if (g === 'หญิง') ym[y].female++; else ym[y].other++;
+  });
+  var yearRows = Object.keys(ym).sort(function (a, b) {
+    if (a === 'ไม่ระบุปี') return 1;
+    if (b === 'ไม่ระบุปี') return -1;
+    return (+b) - (+a);
+  }).map(function (k) { return ym[k]; });
+  var tot = { year: 'รวม', total: N, male: 0, female: 0, other: 0 };
+  yearRows.forEach(function (r) { tot.male += r.male; tot.female += r.female; tot.other += r.other; });
+
+  // --- 2) Patho ---
+  var pm = {};
+  pats.forEach(function (p) { bump_(pm, normPatho_(p.PATHO)); });
+  var pathoOrder = PATHO_KEYS.concat(['อื่นๆ', 'ไม่ระบุ']);
+  var patho = pathoOrder.filter(function (k) {
+    return pm[k] || ['PTC', 'FTC', 'ATC', 'MTC'].indexOf(k) >= 0;
+  }).map(function (k) { return { k: k, v: pm[k] || 0, pct: pct1_(pm[k] || 0, N) }; });
+
+  // --- 3) การผ่าตัด ---
+  var sxPatients = [], sxAll = [], patSx = {};
+  pats.forEach(function (p) {
+    var list = (evByHn[p.HN] || []).filter(function (e) { return e.TYPE === 'SX'; });
+    if (list.length) { sxPatients.push(p); patSx[p.HN] = list; list.forEach(function (e) { sxAll.push(e); }); }
+  });
+  var cnt = { '1 ครั้ง': 0, '2 ครั้ง': 0, '3 ครั้ง': 0, '4 ครั้งขึ้นไป': 0 };
+  var patterns = {};
+  sxPatients.forEach(function (p) {
+    var list = patSx[p.HN], n = list.length;
+    cnt[n >= 4 ? '4 ครั้งขึ้นไป' : n + ' ครั้ง']++;
+    if (n >= 2) {
+      var pat = list.map(function (e) { return splitItems_(e.PROC).join(' + ') || '(ไม่ระบุ)'; }).join(' → ');
+      var key = n + '|' + pat;
+      if (!patterns[key]) patterns[key] = { n: n, pattern: pat, patients: 0 };
+      patterns[key].patients++;
+    }
+  });
+  var countRows = Object.keys(cnt).map(function (k) { return { k: k, v: cnt[k], pct: pct1_(cnt[k], sxPatients.length) }; });
+  var patternRows = Object.keys(patterns).map(function (k) { return patterns[k]; })
+    .sort(function (a, b) { return a.n - b.n || b.patients - a.patients || (a.pattern < b.pattern ? -1 : 1); });
+
+  // --- 4) วันนอนหลังผ่าตัด แยกชนิด ---
+  var allDays = [];
+  var byProc = {}, grpTotalOnly = { surgeries: 0, pats: {}, days: [] }, grpTotalNeck = { surgeries: 0, pats: {}, days: [] };
+  sxAll.forEach(function (e) {
+    var d = e._sxDc;
+    if (d !== null && d !== undefined) allDays.push(d);
+    var items = splitItems_(e.PROC);
+    items.forEach(function (it) {
+      if (!byProc[it]) byProc[it] = { k: it, surgeries: 0, pats: {}, days: [] };
+      byProc[it].surgeries++; byProc[it].pats[e.HN] = 1;
+      if (d !== null && d !== undefined) byProc[it].days.push(d);
+    });
+    if (hasTotal_(items)) {
+      var g = hasNeck_(items) ? grpTotalNeck : grpTotalOnly;
+      g.surgeries++; g.pats[e.HN] = 1;
+      if (d !== null && d !== undefined) g.days.push(d);
+    }
+  });
+  function grpOut(label, g) {
+    return { k: label, surgeries: g.surgeries, patients: Object.keys(g.pats).length, days: dayStat_(g.days) };
+  }
+  var procRows = Object.keys(byProc).map(function (k) { return grpOut(k, byProc[k]); })
+    .sort(function (a, b) { return b.surgeries - a.surgeries; });
+
+  // --- 5) complication หลังผ่าตัด / 6) RAI / 7) complication หลัง RAI ---
+  var raiEvents = [], raiPats = {};
+  pats.forEach(function (p) {
+    (evByHn[p.HN] || []).forEach(function (e) {
+      if (e.TYPE === 'RAI') { raiEvents.push(e); raiPats[p.HN] = 1; }
+    });
+  });
+  var nRaiPat = Object.keys(raiPats).length;
+
+  // --- 8) เสียชีวิต ---
+  var deadBy = {}, patBy = {}, nDead = 0;
+  pats.forEach(function (p) {
+    var k = normPatho_(p.PATHO);
+    bump_(patBy, k);
+    if (str_(p.DEAD).trim()) { nDead++; bump_(deadBy, k); }
+  });
+  var deadRows = pathoOrder.filter(function (k) { return deadBy[k]; })
+    .map(function (k) { return { k: k, v: deadBy[k], total: patBy[k] || 0, pctOfPatho: pct1_(deadBy[k], patBy[k] || 0) }; });
+
+  return {
+    patients: N,
+    yearGender: yearRows, yearGenderTotal: tot,
+    patho: patho,
+    surgery: {
+      patients: sxPatients.length, times: sxAll.length,
+      byCount: countRows, patterns: patternRows
+    },
+    los: {
+      all: dayStat_(allDays),
+      byProc: procRows,
+      totalOnly: grpOut('Total thyroidectomy อย่างเดียว', grpTotalOnly),
+      totalNeck: grpOut('Total thyroidectomy + ต่อมน้ำเหลือง', grpTotalNeck)
+    },
+    compSx: compSummary_(sxAll, sxPatients.length),
+    rai: { patients: nRaiPat, pct: pct1_(nRaiPat, N), comp: compSummary_(raiEvents, nRaiPat) },
+    dead: { total: nDead, pct: pct1_(nDead, N), byPatho: deadRows }
   };
 }
 
@@ -705,7 +893,7 @@ function computeStats_() {
     years: years,
     yearTotal: yearTotal,
     rai: raiOut,
-    badDate: badDate,
+    tc: buildCancerSummary_(pats, evByHn),
     _sxRows: sxRows, _raiRows: raiRows, _patRows: patRows, _byHn: byHn
   };
 }
@@ -785,6 +973,49 @@ function writeSummarySheet_(ss, s) {
   R.push(['คนไข้ที่คำนวณได้', s.kpi.patient.total, 'คน']);
   R.push(['ร้อยละผ่านเกณฑ์', s.kpi.patient.pct, '%']);
 
+  // ===== สรุปผู้ป่วยมะเร็งไทรอยด์ =====
+  var tc = s.tc;
+  function compBlock(title, c, unit) {
+    blank(); head(title);
+    R.push(['ฐานคำนวณ ' + c.denom + ' คน', '', '']);
+    c.items.forEach(function (x) { R.push([x.k, x.patients + ' คน (' + x.times + ' ครั้ง)', x.pct + '%']); });
+    R.push(['ไม่มี complication', c.none, c.nonePct + '%']);
+  }
+  blank(); head('ผู้ป่วยมะเร็งไทรอยด์ ต่อปี แยกเพศ (นับปีจากวัน Bx)');
+  R.push(['ปี พ.ศ.', 'ทั้งหมด (คน)', 'ชาย / หญิง']);
+  tc.yearGender.concat([tc.yearGenderTotal]).forEach(function (r) {
+    R.push([r.year, r.total, r.male + ' / ' + r.female + (r.other ? ' (ไม่ระบุ ' + r.other + ')' : '')]);
+  });
+  blank(); head('ชนิด Patho (ทุกคนที่ลงทะเบียน ' + tc.patients + ' คน)');
+  R.push(['Patho', 'จำนวน (คน)', 'ร้อยละ']);
+  tc.patho.forEach(function (x) { R.push([x.k, x.v, x.pct]); });
+
+  blank(); head('การผ่าตัด');
+  R.push(['ผ่าตัด (คน)', tc.surgery.patients, 'คน']);
+  R.push(['ผ่าตัด (ครั้ง)', tc.surgery.times, 'ครั้ง']);
+  tc.surgery.byCount.forEach(function (x) { R.push(['ผ่าตัด ' + x.k, x.v, x.pct + '%']); });
+  blank(); head('คนที่ผ่าตัดหลายครั้ง ทำอะไรบ้าง');
+  if (!tc.surgery.patterns.length) R.push(['- ไม่มี -', '', '']);
+  tc.surgery.patterns.forEach(function (x) { R.push([x.n + ' ครั้ง: ' + x.pattern, x.patients, 'คน']); });
+
+  blank(); head('นอน รพ. หลังผ่าตัด (นับจากวันที่ผ่าตัด)');
+  R.push(['ทุกครั้งรวมกัน: เฉลี่ย / มัธยฐาน (วัน)', tc.los.all.n ? tc.los.all.mean + ' / ' + tc.los.all.median : '-', tc.los.all.n + ' ครั้ง']);
+  R.push(['ชนิดการผ่าตัด', 'ครั้ง / คน', 'เฉลี่ย (วัน) · มัธยฐาน']);
+  tc.los.byProc.forEach(function (x) {
+    R.push([x.k, x.surgeries + ' / ' + x.patients, x.days.n ? x.days.mean + ' · ' + x.days.median : '-']);
+  });
+  [tc.los.totalOnly, tc.los.totalNeck].forEach(function (x) {
+    R.push([x.k, x.surgeries + ' / ' + x.patients, x.days.n ? x.days.mean + ' · ' + x.days.median : '-']);
+  });
+
+  compBlock('Complication หลังผ่าตัด', tc.compSx);
+  blank(); head('ผู้ป่วยที่ได้ RAI');
+  R.push(['ได้ RAI (คน)', tc.rai.patients, tc.rai.pct + '% ของผู้ป่วยมะเร็งไทรอยด์ทั้งหมด']);
+  compBlock('Complication หลัง RAI', tc.rai.comp);
+  blank(); head('ผู้ป่วยเสียชีวิต');
+  R.push(['เสียชีวิต (คน)', tc.dead.total, tc.dead.pct + '% ของผู้ป่วยทั้งหมด']);
+  tc.dead.byPatho.forEach(function (x) { R.push([x.k, x.v + ' คน', x.pctOfPatho + '% ของ ' + x.k + ' (' + x.total + ' คน)']); });
+
   tallyBlock('เพศ', s.gender, s.patients, 'คน');
   tallyBlock('ช่วงอายุ', s.ageBand, s.patients, 'คน');
   statBlock('อายุ (ปี)', s.ageStat, 'ปี');
@@ -823,12 +1054,12 @@ function writeSummarySheet_(ss, s) {
 function writePatientSheet_(ss, s) {
   var H = ['HN', 'ชื่อ', 'เพศ', 'อายุ', 'Dx', 'Patho', 'Patho เพิ่มเติม',
     'จำนวนครั้งผ่าตัด', 'จำนวนครั้ง RAI', 'วันนอน รพ. รวม (วัน)',
-    'วันหลังผ่าตัดรวม (วัน)', 'ผ่าตัด→RAI ครั้งแรก (วัน)', 'ตัวชี้วัด ≤' + s.kpi.days + ' วัน (ต่อคน)'];
+    'วันหลังผ่าตัดรวม (วัน)', 'ผ่าตัด→RAI ครั้งแรก (วัน)', 'ตัวชี้วัด ≤' + s.kpi.days + ' วัน (ต่อคน)', 'เสียชีวิต', 'หมายเหตุเสียชีวิต'];
   var rows = s._patRows.map(function (r) {
     var p = r.p, a = ageOf_(p);
     return [p.HN, p.NAME || '', p.GENDER || '', a === null ? '' : a, p.DX || '',
       p.PATHO || '', p.PATHONOTE || '', r.nsx, r.nrai,
-      num_(r.losSum), num_(r.dcSum), num_(r.firstRai), r.kpi || ''];
+      num_(r.losSum), num_(r.dcSum), num_(r.firstRai), r.kpi || '', p.DEAD || '', p.DEADNOTE || ''];
   });
   writeTable_(resetSheet_(ss, 'ตารางรายคน'), H, rows, [0]);
 }
@@ -871,7 +1102,7 @@ function writeYearSheet_(ss, s) {
   var all = [s.yearTotal].concat(s.years);
 
   head(['สรุปรายปี (นับปีจากวันที่ผ่าตัด พ.ศ.)', '', '', '', '', '']);
-  line(['นอน รพ. = จำนวนวันหลังผ่าตัดจนถึง Discharge · ต่อคนใช้ค่าที่นานที่สุดของคนนั้น', '', '', '', '', '']);
+  line(['นอน รพ. = จำนวนวันหลังผ่าตัดจนถึง Discharge · คนที่ผ่าตัดหลายครั้งนับอยู่ในทุกช่วงที่เขามีการผ่าตัด (ผลรวม % ของคนอาจเกิน 100)', '', '', '', '', '']);
   line(['']);
   head(['ปี พ.ศ.', 'ผู้ป่วย (คน)', 'ผ่าตัด (ครั้ง)', 'ผ่านเกณฑ์ ต่อครั้ง (%)', 'ผ่านเกณฑ์ ต่อคน (%)', 'เกณฑ์ (วัน)']);
   all.forEach(function (y) {
@@ -882,7 +1113,7 @@ function writeYearSheet_(ss, s) {
   });
   all.forEach(function (y) {
     line(['']);
-    head(['ปี ' + y.year + ' — ช่วงวันหลังผ่าตัด', 'จำนวนครั้ง', '% ของครั้ง', 'จำนวนคน', '% ของคน', '']);
+    head(['ปี ' + y.year + ' — ช่วงวันหลังผ่าตัด', 'จำนวนครั้ง', '% ของการผ่าตัดทั้งหมด', 'จำนวนคน', '% ของคนไข้ทั้งหมด', '']);
     for (var i = 0; i < DAY_BUCKETS.length; i++) {
       line([y.distSurg[i].k, y.distSurg[i].v, y.distSurg[i].pct, y.distPat[i].v, y.distPat[i].pct, '']);
     }
