@@ -503,13 +503,17 @@ function renderTC(tc){
   else { r+=trow(['รูปแบบ','คน'],'h'); sg.patterns.forEach(function(x){r+=trow([x.n+' ครั้ง: '+esc(x.pattern),x.patients]);}); }
   h+=tcCard('3. การผ่าตัด กี่คน กี่ครั้ง',r);
   // 4
-  var L=tc.los;
-  r=(L.all.n?'<div class="big"><div><b>'+L.all.mean+'</b><span>เฉลี่ย (วัน) ทุกครั้ง</span></div><div><b>'+L.all.median+'</b><span>มัธยฐาน (วัน)</span></div><div><b>'+L.all.n+'</b><span>ครั้งที่คำนวณได้</span></div></div>':'<div class="muted" style="margin-top:6px">ยังไม่มีข้อมูลพอคำนวณ</div>')+
-    '<div style="margin-top:14px;font-weight:700;color:var(--brand-dark)">แยกตามชนิดการผ่าตัด</div>'+trow(['ชนิด','ครั้ง / คน','เฉลี่ย (วัน)'],'h');
-  L.byProc.forEach(function(x){r+=trow([esc(x.k),x.surgeries+' / '+x.patients,x.days.n?x.days.mean:'-']);});
-  r+='<div class="muted" style="margin-top:8px">ผ่าตัดครั้งเดียวทำหลายอย่าง จะนับอยู่ในทุกชนิดที่ทำ</div>'+
-    '<div style="margin-top:14px;font-weight:700;color:var(--brand-dark)">สรุป: Total thyroidectomy เทียบกับที่มีต่อมน้ำเหลือง</div>'+trow(['กลุ่ม','ครั้ง / คน','เฉลี่ย (วัน)'],'h');
-  [L.totalOnly,L.totalNeck].forEach(function(x){r+=trow([esc(x.k),x.surgeries+' / '+x.patients,x.days.n?x.days.mean:'-'],'sum');});
+  var L=tc.los, T=L.ttd;
+  r='<div class="muted" style="margin-top:6px">สรุปรวม: ผู้ป่วยที่ผ่าตัดทั้งหมด '+L.patients+' คน '+L.surgeries+' ครั้ง</div>'+
+    (L.all.n?'<div class="big"><div><b>'+L.all.mean+'</b><span>เฉลี่ย (วัน) ทุกครั้ง</span></div><div><b>'+L.all.median+'</b><span>มัธยฐาน (วัน)</span></div><div><b>'+L.all.n+'</b><span>ครั้งที่คำนวณได้</span></div></div>':'<div class="muted" style="margin-top:6px">ยังไม่มีข้อมูลพอคำนวณ</div>')+
+    '<div style="margin-top:14px;font-weight:700;color:var(--brand-dark)">แยกตามกลุ่มการผ่าตัด</div>'+trow(['กลุ่ม','ครั้ง / คน','เฉลี่ย (วัน)'],'h');
+  L.byCat.forEach(function(x){r+=trow([esc(x.k),x.surgeries+' / '+x.patients,x.days.n?x.days.mean:'-']);});
+  r+='<div class="muted" style="margin-top:8px">การผ่าตัด 1 ครั้งอยู่ในกลุ่มเดียว ไม่นับซ้ำ TTD = Total thyroidectomy</div>'+
+    '<div style="margin-top:14px;font-weight:700;color:var(--brand-dark)">TTD ทั้งหมด (ทุกกลุ่มที่มี TTD)</div>'+
+    (T.days.n?'<div class="big"><div><b>'+T.days.mean+'</b><span>เฉลี่ย (วัน)</span></div><div><b>'+T.days.median+'</b><span>มัธยฐาน (วัน)</span></div></div>':'<div class="muted" style="margin-top:6px">ยังไม่มีข้อมูลพอคำนวณ</div>')+
+    '<div style="margin-top:8px">'+trow(['เทียบกับ','TTD','ทั้งหมด','%'],'h')+
+    trow(['ผู้ป่วยที่ผ่าตัด (คน)',T.patients,L.patients,pc(T.pctOfPatients)])+
+    trow(['การผ่าตัดทั้งหมด (ครั้ง)',T.surgeries,L.surgeries,pc(T.pctOfSurgeries)])+'</div>';
   h+=tcCard('4. นอน รพ. หลังผ่าตัด (นับจากวันที่ผ่าตัด)',r);
   // 5
   h+=compCard('5. Complication หลังผ่าตัด',tc.compSx,'คนที่ผ่าตัด');

@@ -559,6 +559,45 @@ function hasTotal_(items) {
   return items.some(function (x) { return /total thyroidectomy/i.test(x); });
 }
 
+function hasTrach_(items) {
+  return items.some(function (x) { return /tracheostomy/i.test(x); });
+}
+
+function hasLobec_(items) {
+  return items.some(function (x) { return /lobectomy/i.test(x); });
+}
+
+var SX_CATS = [
+  'Lobectomy อย่างเดียว',
+  'TTD อย่างเดียว',
+  'TTD + ต่อมน้ำเหลือง',
+  'TTD + ต่อมน้ำเหลือง + tracheostomy',
+  'Lobectomy + ต่อมน้ำเหลือง',
+  'Lobectomy + tracheostomy + ต่อมน้ำเหลือง',
+  'Lobectomy + tracheostomy',
+  'TTD + tracheostomy',
+  'อื่นๆ'
+];
+var SX_CATS_ALWAYS = 6;   // 6 กลุ่มแรกแสดงเสมอ ที่เหลือแสดงเมื่อมีข้อมูล
+
+// จัดการผ่าตัด 1 ครั้งเข้ากลุ่มเดียว (ไม่ซ้อนกัน) จากรายการหัตถการ
+function surgCategory_(items) {
+  var total = hasTotal_(items), lob = hasLobec_(items), neck = hasNeck_(items), tr = hasTrach_(items);
+  if (total) {
+    if (neck && tr) return SX_CATS[3];
+    if (neck) return SX_CATS[2];
+    if (tr) return SX_CATS[7];
+    return SX_CATS[1];
+  }
+  if (lob) {
+    if (neck && tr) return SX_CATS[5];
+    if (neck) return SX_CATS[4];
+    if (tr) return SX_CATS[6];
+    return SX_CATS[0];
+  }
+  return SX_CATS[8];
+}
+
 function dayStat_(arr) {
   var st = stat_(arr);
   return { n: st.n, mean: st.mean, median: st.median, min: st.min, max: st.max };
@@ -634,7 +673,7 @@ function buildCancerSummary_(pats, evByHn) {
     var list = patSx[p.HN], n = list.length;
     cnt[n >= 4 ? '4 ครั้งขึ้นไป' : n + ' ครั้ง']++;
     if (n >= 2) {
-      var pat = list.map(function (e) { return splitItems_(e.PROC).join(' + ') || '(ไม่ระบุ)'; }).join(' → ');
+      var pat = list.map(function (e) { return surgCategory_(splitItems_(e.PROC)); }).join(' → ');
       var key = n + '|' + pat;
       if (!patterns[key]) patterns[key] = { n: n, pattern: pat, patients: 0 };
       patterns[key].patients++;
@@ -644,29 +683,32 @@ function buildCancerSummary_(pats, evByHn) {
   var patternRows = Object.keys(patterns).map(function (k) { return patterns[k]; })
     .sort(function (a, b) { return a.n - b.n || b.patients - a.patients || (a.pattern < b.pattern ? -1 : 1); });
 
-  // --- 4) วันนอนหลังผ่าตัด แยกชนิด ---
+  // --- 4) วันนอนหลังผ่าตัด แยกตามกลุ่มการผ่าตัด (ไม่ซ้อนกัน) ---
   var allDays = [];
-  var byProc = {}, grpTotalOnly = { surgeries: 0, pats: {}, days: [] }, grpTotalNeck = { surgeries: 0, pats: {}, days: [] };
+  var cat = {};
+  SX_CATS.forEach(function (c) { cat[c] = { surgeries: 0, pats: {}, days: [] }; });
+  var ttd = { surgeries: 0, pats: {}, days: [] };
   sxAll.forEach(function (e) {
-    var d = e._sxDc;
-    if (d !== null && d !== undefined) allDays.push(d);
+    var d = e._sxDc, known = (d !== null && d !== undefined);
     var items = splitItems_(e.PROC);
-    items.forEach(function (it) {
-      if (!byProc[it]) byProc[it] = { k: it, surgeries: 0, pats: {}, days: [] };
-      byProc[it].surgeries++; byProc[it].pats[e.HN] = 1;
-      if (d !== null && d !== undefined) byProc[it].days.push(d);
-    });
+    if (known) allDays.push(d);
+    var c = cat[surgCategory_(items)];
+    c.surgeries++; c.pats[e.HN] = 1;
+    if (known) c.days.push(d);
     if (hasTotal_(items)) {
-      var g = hasNeck_(items) ? grpTotalNeck : grpTotalOnly;
-      g.surgeries++; g.pats[e.HN] = 1;
-      if (d !== null && d !== undefined) g.days.push(d);
+      ttd.surgeries++; ttd.pats[e.HN] = 1;
+      if (known) ttd.days.push(d);
     }
   });
   function grpOut(label, g) {
     return { k: label, surgeries: g.surgeries, patients: Object.keys(g.pats).length, days: dayStat_(g.days) };
   }
-  var procRows = Object.keys(byProc).map(function (k) { return grpOut(k, byProc[k]); })
-    .sort(function (a, b) { return b.surgeries - a.surgeries; });
+  var catRows = SX_CATS.map(function (c, i) { return { i: i, g: cat[c], k: c }; })
+    .filter(function (x) { return x.i < SX_CATS_ALWAYS || x.g.surgeries > 0; })
+    .map(function (x) { return grpOut(x.k, x.g); });
+  var ttdOut = grpOut('TTD ทั้งหมด', ttd);
+  ttdOut.pctOfPatients = pct1_(ttdOut.patients, sxPatients.length);
+  ttdOut.pctOfSurgeries = pct1_(ttdOut.surgeries, sxAll.length);
 
   // --- 5) complication หลังผ่าตัด / 6) RAI / 7) complication หลัง RAI ---
   var raiEvents = [], raiPats = {};
@@ -696,10 +738,10 @@ function buildCancerSummary_(pats, evByHn) {
       byCount: countRows, patterns: patternRows
     },
     los: {
+      patients: sxPatients.length, surgeries: sxAll.length,
       all: dayStat_(allDays),
-      byProc: procRows,
-      totalOnly: grpOut('Total thyroidectomy อย่างเดียว', grpTotalOnly),
-      totalNeck: grpOut('Total thyroidectomy + ต่อมน้ำเหลือง', grpTotalNeck)
+      byCat: catRows,
+      ttd: ttdOut
     },
     compSx: compSummary_(sxAll, sxPatients.length),
     rai: { patients: nRaiPat, pct: pct1_(nRaiPat, N), comp: compSummary_(raiEvents, nRaiPat) },
@@ -999,14 +1041,14 @@ function writeSummarySheet_(ss, s) {
   tc.surgery.patterns.forEach(function (x) { R.push([x.n + ' ครั้ง: ' + x.pattern, x.patients, 'คน']); });
 
   blank(); head('นอน รพ. หลังผ่าตัด (นับจากวันที่ผ่าตัด)');
-  R.push(['ทุกครั้งรวมกัน: เฉลี่ย / มัธยฐาน (วัน)', tc.los.all.n ? tc.los.all.mean + ' / ' + tc.los.all.median : '-', tc.los.all.n + ' ครั้ง']);
-  R.push(['ชนิดการผ่าตัด', 'ครั้ง / คน', 'เฉลี่ย (วัน) · มัธยฐาน']);
-  tc.los.byProc.forEach(function (x) {
-    R.push([x.k, x.surgeries + ' / ' + x.patients, x.days.n ? x.days.mean + ' · ' + x.days.median : '-']);
+  R.push(['ผู้ป่วยที่ผ่าตัดทั้งหมด ' + tc.los.patients + ' คน ' + tc.los.surgeries + ' ครั้ง: เฉลี่ย (วัน)', tc.los.all.n ? tc.los.all.mean : '-', tc.los.all.n ? 'มัธยฐาน ' + tc.los.all.median : '']);
+  R.push(['กลุ่มการผ่าตัด', 'ครั้ง / คน', 'เฉลี่ย (วัน)']);
+  tc.los.byCat.forEach(function (x) {
+    R.push([x.k, x.surgeries + ' / ' + x.patients, x.days.n ? x.days.mean : '-']);
   });
-  [tc.los.totalOnly, tc.los.totalNeck].forEach(function (x) {
-    R.push([x.k, x.surgeries + ' / ' + x.patients, x.days.n ? x.days.mean + ' · ' + x.days.median : '-']);
-  });
+  R.push(['TTD ทั้งหมด: เฉลี่ย (วัน)', tc.los.ttd.days.n ? tc.los.ttd.days.mean : '-', tc.los.ttd.days.n ? 'มัธยฐาน ' + tc.los.ttd.days.median : '']);
+  R.push(['TTD ทั้งหมด เทียบผู้ป่วยที่ผ่าตัด', tc.los.ttd.patients + ' / ' + tc.los.patients + ' คน', tc.los.ttd.pctOfPatients + '%']);
+  R.push(['TTD ทั้งหมด เทียบการผ่าตัดทั้งหมด', tc.los.ttd.surgeries + ' / ' + tc.los.surgeries + ' ครั้ง', tc.los.ttd.pctOfSurgeries + '%']);
 
   compBlock('Complication หลังผ่าตัด', tc.compSx);
   blank(); head('ผู้ป่วยที่ได้ RAI');
