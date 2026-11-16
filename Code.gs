@@ -641,8 +641,9 @@ function buildCancerSummary_(pats, evByHn) {
       });
     }
     var y = (t === null) ? 'ไม่ระบุปี' : String(new Date(t).getUTCFullYear() + 543);
-    if (!ym[y]) ym[y] = { year: y, total: 0, male: 0, female: 0, other: 0 };
+    if (!ym[y]) ym[y] = { year: y, total: 0, male: 0, female: 0, other: 0, dead: 0 };
     ym[y].total++;
+    if (str_(p.DEAD).trim()) ym[y].dead++;
     var g = str_(p.GENDER).trim();
     if (g === 'ชาย') ym[y].male++; else if (g === 'หญิง') ym[y].female++; else ym[y].other++;
   });
@@ -651,8 +652,8 @@ function buildCancerSummary_(pats, evByHn) {
     if (b === 'ไม่ระบุปี') return -1;
     return (+b) - (+a);
   }).map(function (k) { return ym[k]; });
-  var tot = { year: 'รวม', total: N, male: 0, female: 0, other: 0 };
-  yearRows.forEach(function (r) { tot.male += r.male; tot.female += r.female; tot.other += r.other; });
+  var tot = { year: 'รวม', total: N, male: 0, female: 0, other: 0, dead: 0 };
+  yearRows.forEach(function (r) { tot.male += r.male; tot.female += r.female; tot.other += r.other; tot.dead += r.dead; });
 
   // --- 2) Patho ---
   var pm = {};
@@ -746,7 +747,12 @@ function buildCancerSummary_(pats, evByHn) {
     },
     compSx: compSummary_(sxAll, sxPatients.length),
     rai: { patients: nRaiPat, pct: pct1_(nRaiPat, N), comp: compSummary_(raiEvents, nRaiPat) },
-    dead: { total: nDead, pct: pct1_(nDead, N), byPatho: deadRows }
+    dead: {
+      total: nDead, pct: pct1_(nDead, N), byPatho: deadRows,
+      byYear: yearRows.map(function (r) {
+        return { year: r.year, total: r.total, dead: r.dead, pctOfYear: pct1_(r.dead, r.total), pctOfAll: pct1_(r.dead, N) };
+      })
+    }
   };
 }
 
@@ -1058,6 +1064,8 @@ function writeSummarySheet_(ss, s) {
   blank(); head('ผู้ป่วยเสียชีวิต');
   R.push(['เสียชีวิต (คน)', tc.dead.total, tc.dead.pct + '% ของผู้ป่วยทั้งหมด']);
   tc.dead.byPatho.forEach(function (x) { R.push([x.k, x.v + ' คน', x.pctOfPatho + '% ของ ' + x.k + ' (' + x.total + ' คน)']); });
+  R.push(['เสียชีวิตต่อปี (ปีที่ Bx)', 'คน / คนไข้ปีนั้น', '% ของปีนั้น · % ของทั้งหมด']);
+  tc.dead.byYear.forEach(function (x) { R.push([x.year, x.dead + ' / ' + x.total, x.pctOfYear + '% · ' + x.pctOfAll + '%']); });
 
   tallyBlock('เพศ', s.gender, s.patients, 'คน');
   tallyBlock('ช่วงอายุ', s.ageBand, s.patients, 'คน');

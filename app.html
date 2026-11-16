@@ -526,6 +526,11 @@ function renderTC(tc){
   r='<div class="big"><div><b>'+d.total+'</b><span>เสียชีวิต (คน)</span></div><div><b>'+pc(d.pct)+'</b><span>ของผู้ป่วยมะเร็งไทรอยด์ทั้งหมด ('+tc.patients+' คน)</span></div></div>';
   if(d.byPatho.length){ r+='<div style="margin-top:12px">'+trow(['Patho','เสียชีวิต','% ของ Patho'],'h'); d.byPatho.forEach(function(x){r+=trow([esc(x.k),x.v,pc(x.pctOfPatho)]);}); r+='</div>'; }
   else r+='<div class="muted" style="margin-top:8px">ยังไม่มีผู้ป่วยที่ติ๊กว่าเสียชีวิต</div>';
+  if(d.total){
+    r+='<div style="margin-top:14px;font-weight:700;color:var(--brand-dark)">เสียชีวิตต่อปี</div>'+trow(['ปี พ.ศ.','เสียชีวิต / คนไข้ปีนั้น','% ของปีนั้น','% ของทั้งหมด'],'h');
+    d.byYear.forEach(function(x){ r+=trow([esc(x.year),x.dead+' / '+x.total,pc(x.pctOfYear),pc(x.pctOfAll)]); });
+    r+='<div class="muted" style="margin-top:8px">นับปีตามปีที่ Bx ของผู้ป่วย (ไม่ใช่ปีที่เสียชีวิต เพราะไม่ได้เก็บวันที่) ส่วน "% ของทั้งหมด" หารด้วยผู้ป่วยมะเร็งไทรอยด์ทุกคน '+tc.patients+' คน</div>';
+  }
   h+=tcCard('8. ผู้ป่วยเสียชีวิต (Dead)',r);
   return h;
 }
