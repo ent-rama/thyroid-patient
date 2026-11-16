@@ -556,7 +556,8 @@ function hasNeck_(items) {
 }
 
 function hasTotal_(items) {
-  return items.some(function (x) { return /total thyroidectomy/i.test(x); });
+  // Total thyroidectomy รวมถึง Completion thyroidectomy และที่พิมพ์ย่อว่า TTD
+  return items.some(function (x) { return /total thyroidectomy|completion|\bTTD\b/i.test(x); });
 }
 
 function hasTrach_(items) {
